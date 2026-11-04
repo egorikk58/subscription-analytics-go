@@ -340,6 +340,17 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 			t.Fatalf("identical requests aggregated %d times", metric.GetHistogram().GetSampleCount())
 		}
 	})
+	t.Run("retirement grace starts after preparation not at the poll watermark", func(t *testing.T) {
+		var retiredAt, currentAsOf time.Time
+		if err := db.QueryRow(ctx, `SELECT old.retired_at,current.data_as_of FROM analytics.snapshots old
+CROSS JOIN analytics.state state JOIN analytics.snapshots current ON current.id=state.current_id
+WHERE old.retired_at IS NOT NULL ORDER BY old.retired_at DESC LIMIT 1`).Scan(&retiredAt, &currentAsOf); err != nil {
+			t.Fatal(err)
+		}
+		if !retiredAt.After(currentAsOf) {
+			t.Fatal("slow polls consume the old snapshot's cleanup grace", retiredAt, currentAsOf)
+		}
+	})
 	t.Run("failed commit keeps snapshot cursor and durable responses", func(t *testing.T) {
 		var beforeID int64
 		var beforeCursor time.Time

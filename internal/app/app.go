@@ -508,7 +508,9 @@ func (s *service) sync(ctx context.Context) error {
 			return e
 		}
 	}
-	_, e = tx.Exec(ctx, "UPDATE analytics.snapshots SET retired_at=$1 WHERE id=(SELECT current_id FROM analytics.state WHERE id=1)", asof)
+	// Retirement starts at publication, not at the beginning of a potentially
+	// long source poll. Old readers retain the full cleanup grace period.
+	_, e = tx.Exec(ctx, "UPDATE analytics.snapshots SET retired_at=clock_timestamp() WHERE id=(SELECT current_id FROM analytics.state WHERE id=1)")
 	if e != nil {
 		return e
 	}
