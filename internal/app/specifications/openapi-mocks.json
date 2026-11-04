@@ -1,0 +1,1335 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Internal mock source contracts",
+    "version": "1.0.0",
+    "description": "These services are deliberately not published. Try-it-out needs access from the Docker network. /plans also uses the items/has_more envelope."
+  },
+  "paths": {
+    "/users": {
+      "get": {
+        "operationId": "sourceSourceUser",
+        "servers": [
+          {
+            "url": "http://users-service:8080",
+            "description": "Internal Docker network only; not reachable from the browser."
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 1000
+            }
+          },
+          {
+            "name": "updated_since",
+            "in": "query",
+            "required": false,
+            "description": "Inclusive updated_at cursor; stable order (updated_at,id).",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stable page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SourceUser"
+                      }
+                    },
+                    "has_more": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "has_more"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Injected rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Injected upstream failure"
+          },
+          "503": {
+            "description": "Database unavailable"
+          }
+        }
+      }
+    },
+    "/plans": {
+      "get": {
+        "operationId": "sourcePlan",
+        "servers": [
+          {
+            "url": "http://subscriptions-service:8080",
+            "description": "Internal Docker network only; not reachable from the browser."
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 1000
+            }
+          },
+          {
+            "name": "updated_since",
+            "in": "query",
+            "required": false,
+            "description": "Inclusive updated_at cursor; stable order (updated_at,id).",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stable page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Plan"
+                      }
+                    },
+                    "has_more": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "has_more"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Injected rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Injected upstream failure"
+          },
+          "503": {
+            "description": "Database unavailable"
+          }
+        }
+      }
+    },
+    "/subscriptions": {
+      "get": {
+        "operationId": "sourceSourceSubscription",
+        "servers": [
+          {
+            "url": "http://subscriptions-service:8080",
+            "description": "Internal Docker network only; not reachable from the browser."
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 1000
+            }
+          },
+          {
+            "name": "updated_since",
+            "in": "query",
+            "required": false,
+            "description": "Inclusive updated_at cursor; stable order (updated_at,id).",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stable page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SourceSubscription"
+                      }
+                    },
+                    "has_more": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "has_more"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Injected rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Injected upstream failure"
+          },
+          "503": {
+            "description": "Database unavailable"
+          }
+        }
+      }
+    },
+    "/payments": {
+      "get": {
+        "operationId": "sourceSourcePayment",
+        "servers": [
+          {
+            "url": "http://payments-service:8080",
+            "description": "Internal Docker network only; not reachable from the browser."
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000,
+              "default": 1
+            }
+          },
+          {
+            "name": "page_size",
+            "in": "query",
+            "required": false,
+            "description": "",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 1000
+            }
+          },
+          {
+            "name": "updated_since",
+            "in": "query",
+            "required": false,
+            "description": "Inclusive updated_at cursor; stable order (updated_at,id).",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stable page",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SourcePayment"
+                      }
+                    },
+                    "has_more": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "items",
+                    "has_more"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid parameters",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Injected rate limit",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Injected upstream failure"
+          },
+          "503": {
+            "description": "Database unavailable"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "SummaryValues": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "enum": [
+              "RUB"
+            ]
+          },
+          "users_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "total_revenue_minor": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Net lifetime revenue in kopecks."
+          },
+          "mean_ltv_minor": {
+            "type": "string",
+            "pattern": "^-?\\d+\\.\\d{2}$",
+            "example": "656762.90",
+            "description": "Mean in fractional kopecks, rounded to two decimal places."
+          },
+          "median_ltv_minor": {
+            "type": "string",
+            "example": "499000.00"
+          }
+        },
+        "required": [
+          "currency",
+          "users_count",
+          "total_revenue_minor",
+          "mean_ltv_minor",
+          "median_ltv_minor"
+        ]
+      },
+      "Summary": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SummaryValues"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "data_as_of": {
+                "type": "string",
+                "format": "date-time"
+              }
+            },
+            "required": [
+              "data_as_of"
+            ]
+          }
+        ]
+      },
+      "Period": {
+        "type": "object",
+        "properties": {
+          "period": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "eligible": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "renewed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "cumulative_eligible": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "nullable": true
+          },
+          "cumulative_rate": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1,
+            "nullable": true
+          }
+        },
+        "required": [
+          "period",
+          "eligible",
+          "renewed",
+          "cumulative_eligible",
+          "rate",
+          "cumulative_rate"
+        ]
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "data_as_of": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "error",
+          "data_as_of"
+        ]
+      },
+      "Plan": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "enum": [
+              "monthly",
+              "quarterly",
+              "half-year",
+              "yearly"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "period_months": {
+            "type": "integer",
+            "enum": [
+              1,
+              3,
+              6,
+              12
+            ]
+          },
+          "price": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "RUB"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "period_months",
+          "price",
+          "currency"
+        ]
+      },
+      "Retention": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "enum": [
+              "monthly",
+              "quarterly",
+              "half-year",
+              "yearly"
+            ]
+          },
+          "data_as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "cohort_size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Period"
+            }
+          }
+        },
+        "required": [
+          "plan_id",
+          "data_as_of",
+          "cohort_size",
+          "periods"
+        ]
+      },
+      "Status": {
+        "type": "object",
+        "properties": {
+          "snapshot_id": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "data_as_of": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_success_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "next_sync_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "last_error": {
+            "type": "string",
+            "nullable": true
+          },
+          "sync_in_progress": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "data_as_of",
+          "last_success_at",
+          "next_sync_at",
+          "last_error",
+          "sync_in_progress"
+        ]
+      },
+      "Health": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok"
+            ]
+          },
+          "data_as_of": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "status",
+          "data_as_of"
+        ]
+      },
+      "PreviewRequest": {
+        "type": "object",
+        "properties": {
+          "seed": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "users_count": {
+            "type": "integer",
+            "minimum": 10000,
+            "maximum": 100000,
+            "default": 31419
+          },
+          "history_months": {
+            "type": "integer",
+            "minimum": 18,
+            "maximum": 24,
+            "default": 24
+          },
+          "data_as_of": {
+            "type": "string",
+            "format": "date-time",
+            "example": "2026-11-01T00:00:00Z"
+          }
+        }
+      },
+      "SourceUser": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "telegram_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "utm_link": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "telegram_id",
+          "created_at",
+          "utm_link",
+          "updated_at"
+        ]
+      },
+      "SourceSubscription": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_id": {
+            "type": "string",
+            "enum": [
+              "monthly",
+              "quarterly",
+              "half-year",
+              "yearly"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "canceled",
+              "expired"
+            ]
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "current_period_end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "canceled_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "plan_id",
+          "status",
+          "started_at",
+          "current_period_end",
+          "canceled_at",
+          "updated_at"
+        ]
+      },
+      "SourcePayment": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "user_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "subscription_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Native atomic units: RUB=2 decimals, BTC=8, canonical USDT=6. Positive int64. Not always RUB kopecks."
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "RUB",
+              "BTC",
+              "USDT"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "succeeded",
+              "failed",
+              "refunded"
+            ]
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "refund_of_payment_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "fx": {
+            "$ref": "#/components/schemas/ExchangeRate"
+          }
+        },
+        "required": [
+          "id",
+          "user_id",
+          "subscription_id",
+          "amount",
+          "currency",
+          "status",
+          "period_start",
+          "period_end",
+          "created_at",
+          "updated_at"
+        ],
+        "description": "Original native amount is preserved. Crypto requires a historical FX quote; RUB uses identity conversion. Full refunds must copy original amount, asset and quote. Quote failure rejects publication. Ledger USDT is normalized to 6 decimals; this service does not receive blockchain transactions."
+      },
+      "PlanSummary": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/SummaryValues"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "plan_id": {
+                "type": "string",
+                "enum": [
+                  "monthly",
+                  "quarterly",
+                  "half-year",
+                  "yearly"
+                ]
+              }
+            },
+            "required": [
+              "plan_id"
+            ]
+          }
+        ]
+      },
+      "DashboardPlan": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/PlanSummary"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "period_months": {
+                "type": "integer",
+                "enum": [
+                  1,
+                  3,
+                  6,
+                  12
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "period_months"
+            ]
+          }
+        ]
+      },
+      "ByPlan": {
+        "type": "object",
+        "properties": {
+          "data_as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "plans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanSummary"
+            }
+          }
+        },
+        "required": [
+          "data_as_of",
+          "plans"
+        ]
+      },
+      "Plans": {
+        "type": "object",
+        "properties": {
+          "data_as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "plans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Plan"
+            }
+          }
+        },
+        "required": [
+          "data_as_of",
+          "plans"
+        ]
+      },
+      "RetentionReport": {
+        "type": "object",
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "enum": [
+              "monthly",
+              "quarterly",
+              "half-year",
+              "yearly"
+            ]
+          },
+          "cohort_size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "periods": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Period"
+            }
+          }
+        },
+        "required": [
+          "plan_id",
+          "cohort_size",
+          "periods"
+        ]
+      },
+      "Dataset": {
+        "type": "object",
+        "properties": {
+          "seed": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "generator_version": {
+            "type": "string"
+          },
+          "history_months": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "dataset_as_of": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "users_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "subscriptions_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "payments_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "succeeded_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "refunded_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "switches_count": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "unpaid_users": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "active_periods": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "samples": {
+            "type": "object",
+            "properties": {
+              "users": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SourceUser"
+                }
+              },
+              "subscriptions": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SourceSubscription"
+                }
+              },
+              "payments": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/SourcePayment"
+                }
+              }
+            },
+            "required": [
+              "users",
+              "subscriptions",
+              "payments"
+            ]
+          }
+        },
+        "required": [
+          "seed",
+          "generator_version",
+          "history_months",
+          "dataset_as_of",
+          "users_count",
+          "subscriptions_count",
+          "payments_count",
+          "succeeded_count",
+          "failed_count",
+          "refunded_count",
+          "switches_count",
+          "unpaid_users",
+          "active_periods",
+          "fingerprint",
+          "samples"
+        ]
+      },
+      "DashboardUser": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "telegram_id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "first_subscription_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "first_plan_id": {
+            "type": "string"
+          },
+          "ltv_minor": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "utm_link": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "telegram_id",
+          "first_subscription_at",
+          "first_plan_id",
+          "ltv_minor",
+          "utm_link"
+        ]
+      },
+      "Dashboard": {
+        "type": "object",
+        "properties": {
+          "data_as_of": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "snapshot_id": {
+            "type": "integer",
+            "format": "int64",
+            "nullable": true
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "live",
+              "preview"
+            ]
+          },
+          "selection": {
+            "type": "string",
+            "enum": [
+              "first_plan",
+              "chain"
+            ]
+          },
+          "summary": {
+            "$ref": "#/components/schemas/SummaryValues"
+          },
+          "plans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardPlan"
+            }
+          },
+          "timeline": {
+            "type": "array",
+            "items": {
+              "allOf": [
+                {
+                  "$ref": "#/components/schemas/SummaryValues"
+                },
+                {
+                  "type": "object",
+                  "properties": {
+                    "month": {
+                      "type": "string",
+                      "example": "2026-01"
+                    }
+                  },
+                  "required": [
+                    "month"
+                  ]
+                }
+              ]
+            }
+          },
+          "retention": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/RetentionReport"
+            }
+          },
+          "cohorts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "month": {
+                  "type": "string"
+                },
+                "users_count": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "periods": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Period"
+                  }
+                }
+              },
+              "required": [
+                "month",
+                "users_count",
+                "periods"
+              ]
+            }
+          },
+          "distribution": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "min_minor": {
+                  "type": "integer",
+                  "format": "int64"
+                },
+                "max_minor": {
+                  "type": "integer",
+                  "format": "int64",
+                  "nullable": true
+                },
+                "users_count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "label",
+                "min_minor",
+                "max_minor",
+                "users_count"
+              ]
+            }
+          },
+          "users": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/components/schemas/DashboardUser"
+                }
+              },
+              "page": {
+                "type": "integer"
+              },
+              "page_size": {
+                "type": "integer"
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "pages": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "items",
+              "page",
+              "page_size",
+              "total",
+              "pages"
+            ]
+          },
+          "dataset": {
+            "$ref": "#/components/schemas/Dataset"
+          }
+        },
+        "required": [
+          "data_as_of",
+          "snapshot_id",
+          "mode",
+          "selection",
+          "summary",
+          "plans",
+          "timeline",
+          "retention",
+          "cohorts",
+          "distribution",
+          "users",
+          "dataset"
+        ]
+      },
+      "ExchangeRate": {
+        "type": "object",
+        "required": [
+          "id",
+          "rub_per_unit",
+          "as_of",
+          "source"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "rub_per_unit": {
+            "type": "string",
+            "pattern": "^[0-9]{1,12}(\\.[0-9]{1,12})?$",
+            "description": "Exact positive RUB major units per one native asset unit, frozen at payment time."
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Must not be later than payment.created_at. Full refunds copy the original quote."
+          },
+          "source": {
+            "type": "string",
+            "description": "Mock fixture: deterministic-demo-fixture-v1. Synthetic, not a market feed."
+          }
+        }
+      },
+      "ConversionPolicy": {
+        "type": "object",
+        "required": [
+          "currency",
+          "method",
+          "rounding"
+        ],
+        "properties": {
+          "currency": {
+            "type": "string",
+            "enum": [
+              "RUB"
+            ]
+          },
+          "method": {
+            "type": "string"
+          },
+          "rounding": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

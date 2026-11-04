@@ -1,0 +1,1 @@
+React source: frontend/. Build with make frontend-build or docker compose build. Generated assets live in web/dist/.

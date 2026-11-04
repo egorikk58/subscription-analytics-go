@@ -1,0 +1,33 @@
+groups:
+  - name: subscope
+    rules:
+      - alert: ServiceMetricsUnavailable
+        expr: up{job=~"analytics|users|subscriptions|payments"} == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: 'Metrics endpoint unreachable for {{ $labels.job }}'}
+      - alert: PostgreSQLUnavailable
+        expr: subscope_postgres_up == 0
+        for: 2m
+        labels: {severity: critical}
+        annotations: {summary: 'PostgreSQL probe failed for {{ $labels.service }}'}
+      - alert: RedisUnavailable
+        expr: subscope_redis_up{service="analytics-service"} == 0
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'Redis unavailable; PostgreSQL fallback remains active'}
+      - alert: NoPublishedSnapshot
+        expr: subscope_snapshot_available{service="analytics-service"} == 0
+        for: 5m
+        labels: {severity: critical}
+        annotations: {summary: 'No complete analytics snapshot'}
+      - alert: StaleSnapshot
+        expr: (time() - subscope_sync_last_success_timestamp_seconds{service="analytics-service"} > 2 * subscope_sync_interval_seconds{service="analytics-service"} + 120) and on(instance, service) (subscope_snapshot_available{service="analytics-service"} == 1)
+        for: 2m
+        labels: {severity: warning}
+        annotations: {summary: 'No successful synchronization for over two intervals'}
+      - alert: HighHTTPErrorRate
+        expr: (sum by(service) (rate(subscope_http_requests_total{status=~"5.."}[5m])) / clamp_min(sum by(service) (rate(subscope_http_requests_total[5m])), 0.001) > 0.05) and on(service) (sum by(service) (rate(subscope_http_requests_total[5m])) > 1)
+        for: 5m
+        labels: {severity: warning}
+        annotations: {summary: 'HTTP 5xx ratio above 5% with over 1 request/s'}

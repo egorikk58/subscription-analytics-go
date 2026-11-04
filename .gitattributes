@@ -1,0 +1,12 @@
+* text=auto eol=lf
+*.go text eol=lf
+*.sh text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.css text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+Makefile text eol=lf
+*.woff2 binary
+*.docx binary
+*.zip binary

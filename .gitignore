@@ -1,0 +1,54 @@
+.env
+.env.*
+!.env.example
+/bin/
+/tmp/
+/coverage.out
+/coverage.html
+*.test
+*.exe
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Local design inspector screenshots and measurements
+/.taste-skill/
+
+# Frontend dependencies, generated bundles, and test artifacts
+/frontend/node_modules/
+/frontend/dist/
+/frontend/coverage/
+/frontend/test-results/
+/frontend/playwright-report/
+/internal/app/web/dist/
+*.tsbuildinfo
+
+# Imported comparison artifacts are not application source.
+.comparison/
+*.zip
+
+# Local evidence and runtime data; application assets stay versioned.
+/screenshots/
+/artifacts/
+/reports/
+/docs/screenshots/
+**/*.screenshot.png
+**/*.screenshot.jpg
+*.log
+*.sql.dump
+*.dump
+*.sqlite
+*.sqlite3
+/pgdata/
+/redis-data/
+/grafana-data/
+/prometheus-data/
+
+# Local companion material must remain outside the repository.
+/materials/
+/support/
+/evidence/
+
+# CI is kept with companion materials and can be enabled separately.
+/.github/workflows/
