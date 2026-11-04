@@ -1,6 +1,6 @@
 # Развитие после бонусов
 
-Реализованы RUB/BTC/USDT с конвертацией, UTM-группировка/фильтры, Telegram LTV lookup, Prometheus/Grafana и JSON slog. Детали и границы: [BONUSES.md](BONUSES.md), [OPERATIONS.md](OPERATIONS.md). CI не включён в поставку.
+Реализованы RUB/BTC/USDT с конвертацией, UTM-группировка/фильтры, Telegram LTV lookup, Prometheus/Grafana, JSON slog и GitHub Actions. Детали и границы: [BONUSES.md](BONUSES.md), [OPERATIONS.md](OPERATIONS.md), [TESTING.md](TESTING.md).
 
 ## Дальнейшее развитие бонусов
 
@@ -47,4 +47,4 @@ HTTP/Go-метрики, синхронизация, источники, кеш, 
 
 ## Дальнейшее развитие проверок и CI
 
-Подключить CI с Go race на PostgreSQL/Redis, линтером, frontend typecheck/ESLint/Vitest/build/browser tests и Compose smoke. Дополнительные проверки — миграции на сохранённом volume, аварии между подготовкой snapshot и commit, рестарты PostgreSQL/Redis, ограничение памяти, длительные нагрузочные прогоны и периодическая проверка зависимостей. Каждое расширение должно иметь измеримый сценарий, а не только увеличение процента покрытия.
+CI запускает Go race с PostgreSQL/Redis, линтер, frontend typecheck/ESLint/Vitest/build/browser tests и Compose/live smoke. Дальнейшие проверки — обновление миграций на сохранённых production-like volumes, потеря соединения в момент ответа COMMIT, рестарты PostgreSQL/Redis, ограничение памяти, длительные нагрузочные прогоны и периодическая проверка зависимостей. Транзакционный rollback при отказе COMMIT уже проверяется integration-тестом. Каждое расширение должно иметь измеримый сценарий, а не только увеличение процента покрытия.

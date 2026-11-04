@@ -49,6 +49,3 @@ Thumbs.db
 /materials/
 /support/
 /evidence/
-
-# CI is kept with companion materials and can be enabled separately.
-/.github/workflows/

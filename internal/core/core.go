@@ -124,6 +124,8 @@ func Prepare(d Dataset, now time.Time) (Snapshot, error) {
 		users[u.ID] = len(s.Facts)
 		s.Facts = append(s.Facts, Fact{ID: u.ID, TelegramID: u.TelegramID, UTMLink: u.UTMLink})
 	}
+	// Do not reorder a caller's source data while preparing immutable facts.
+	d.Subscriptions = append([]Subscription(nil), d.Subscriptions...)
 	sort.Slice(d.Subscriptions, func(i, j int) bool {
 		a, b := d.Subscriptions[i], d.Subscriptions[j]
 		if a.StartedAt.Equal(b.StartedAt) {
@@ -227,6 +229,18 @@ func Prepare(d Dataset, now time.Time) (Snapshot, error) {
 		}
 		s.Facts[i].LTV = totals[i].Int64()
 	}
+	// A new subscription closes the preceding chain, including a tariff switch.
+	// Later charges on an old subscription still contribute to lifetime revenue,
+	// but cannot make that old chain appear to renew after the switch.
+	chainEnds := map[string]time.Time{}
+	nextSubscription := map[string]time.Time{}
+	for i := len(d.Subscriptions) - 1; i >= 0; i-- {
+		sub := d.Subscriptions[i]
+		if next, exists := nextSubscription[sub.UserID]; exists {
+			chainEnds[sub.ID] = next
+		}
+		nextSubscription[sub.UserID] = sub.StartedAt
+	}
 	seen := map[string]bool{}
 	for _, sub := range d.Subscriptions {
 		key := sub.UserID + "/" + sub.PlanID
@@ -238,6 +252,9 @@ func Prepare(d Dataset, now time.Time) (Snapshot, error) {
 		c := Chain{PlanID: sub.PlanID, Start: sub.StartedAt.UTC(), Months: plan.PeriodMonths}
 		for n := 0; n < 1000; n++ {
 			a, b := Boundary(c.Start, n*c.Months), Boundary(c.Start, (n+1)*c.Months)
+			if end, closed := chainEnds[sub.ID]; closed && !a.Before(end) {
+				break
+			}
 			if !paid[sub.ID+"/"+a.Format(time.RFC3339Nano)+"/"+b.Format(time.RFC3339Nano)] {
 				break
 			}

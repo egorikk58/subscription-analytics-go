@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -183,6 +184,11 @@ func (s *service) preview(w http.ResponseWriter, r *http.Request) {
 	decoder.DisallowUnknownFields()
 	if e = decoder.Decode(&p); e != nil {
 		write(w, http.StatusBadRequest, map[string]any{"error": "invalid generation parameters", "data_as_of": nil})
+		return
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		write(w, http.StatusBadRequest, map[string]any{"error": "generation body must contain one JSON object", "data_as_of": nil})
 		return
 	}
 	asof, e := validatePreview(p, time.Now())

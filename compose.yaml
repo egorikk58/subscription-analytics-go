@@ -52,6 +52,7 @@ services:
     restart: "no"
 
   users-service:
+    stop_grace_period: 25s
     build:
       context: .
       dockerfile: docker/users-service.Dockerfile
@@ -73,6 +74,7 @@ services:
     restart: unless-stopped
 
   subscriptions-service:
+    stop_grace_period: 25s
     build:
       context: .
       dockerfile: docker/subscriptions-service.Dockerfile
@@ -94,6 +96,7 @@ services:
     restart: unless-stopped
 
   payments-service:
+    stop_grace_period: 25s
     build:
       context: .
       dockerfile: docker/payments-service.Dockerfile
@@ -115,6 +118,7 @@ services:
     restart: unless-stopped
 
   analytics-service:
+    stop_grace_period: 25s
     build:
       context: .
       dockerfile: docker/analytics-service.Dockerfile

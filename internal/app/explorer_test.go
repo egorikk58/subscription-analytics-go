@@ -22,7 +22,7 @@ func TestDashboardQueryValidation(t *testing.T) {
 
 func TestPreviewRejectsInvalidGeneration(t *testing.T) {
 	s := &service{}
-	for _, body := range []string{`{"users_count":9999}`, `{"users_count":100001}`, `{"history_months":25}`, `{"data_as_of":"2099-01-01T00:00:00Z"}`, `{"seed":1.5}`, `{"unknown":true}`} {
+	for _, body := range []string{`{"users_count":9999}`, `{"users_count":100001}`, `{"history_months":25}`, `{"data_as_of":"2099-01-01T00:00:00Z"}`, `{"seed":1.5}`, `{"unknown":true}`, `{} {}`, `{} trailing`} {
 		w := httptest.NewRecorder()
 		s.preview(w, httptest.NewRequest(http.MethodPost, "/api/demo/preview", strings.NewReader(body)))
 		if w.Code != http.StatusBadRequest {

@@ -58,6 +58,51 @@ func TestFetchCancellation(t *testing.T) {
 	}
 }
 
+func TestFetch429HonorsRetryAfterAndDoesNotRetryPermanent400(t *testing.T) {
+	t.Setenv("RETRY_ATTEMPTS", "2")
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`{"items":[],"has_more":false}`))
+	}))
+	defer server.Close()
+	started := time.Now()
+	if _, err := fetch(context.Background(), server.URL, nil); err != nil || calls.Load() != 2 || time.Since(started) < time.Second {
+		t.Fatalf("Retry-After ignored: calls=%d elapsed=%s error=%v", calls.Load(), time.Since(started), err)
+	}
+	calls.Store(0)
+	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+	}))
+	defer bad.Close()
+	if _, err := fetch(context.Background(), bad.URL, nil); err == nil || calls.Load() != 1 {
+		t.Fatal("permanent client error was retried")
+	}
+}
+
+func TestFetchHTTPDateRetryAfterCanBeCanceled(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) == 1 {
+			w.Header().Set("Retry-After", time.Now().Add(time.Minute).UTC().Format(http.TimeFormat))
+			w.WriteHeader(429)
+			return
+		}
+		_, _ = w.Write([]byte(`{"items":[],"has_more":false}`))
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond)
+	defer cancel()
+	if _, err := fetch(ctx, server.URL, nil); err == nil || calls.Load() != 1 {
+		t.Fatal("HTTP-date Retry-After ignored or context cancellation lost")
+	}
+}
+
 func TestFetchRejectsInvalidSuccessEnvelope(t *testing.T) {
 	for _, body := range []string{
 		`{}`,

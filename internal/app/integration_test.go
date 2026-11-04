@@ -9,12 +9,14 @@ import (
 	"net/http/httptest"
 	"os"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/redis/go-redis/v9"
 	"subscription-analytics/internal/core"
 )
@@ -105,6 +107,7 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 
 	var unavailable atomic.Bool
 	var malformed atomic.Bool
+	var latePageFailure atomic.Bool
 	var incrementalRequests atomic.Int64
 	mux := http.NewServeMux()
 	for _, route := range []struct{ schema, table string }{
@@ -113,6 +116,10 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 	} {
 		schema, table := route.schema, route.table
 		mux.HandleFunc("GET /"+table, func(w http.ResponseWriter, r *http.Request) {
+			if latePageFailure.Load() && table == "users" && r.URL.Query().Get("page") == "2" {
+				http.Error(w, "source failed after a complete first page", http.StatusInternalServerError)
+				return
+			}
 			if malformed.Load() && table == "users" {
 				_, _ = w.Write([]byte(`{"error":"invalid successful upstream response"}`))
 				return
@@ -197,6 +204,14 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 		t.Fatalf("failed first sync modified imported/published data: empty=%v raw=%d error=%v", noSnapshot, rawCount, err)
 	}
 	malformed.Store(false)
+	latePageFailure.Store(true)
+	if err = svc.sync(ctx); err == nil {
+		t.Fatal("a source failure on page 2 published a partial snapshot")
+	}
+	if err = db.QueryRow(ctx, "SELECT current_id IS NULL,(SELECT count(*) FROM analytics.raw) FROM analytics.state WHERE id=1").Scan(&noSnapshot, &rawCount); err != nil || !noSnapshot || rawCount != 0 {
+		t.Fatal("late-page failure changed raw data or publication state", err)
+	}
+	latePageFailure.Store(false)
 	if err = svc.sync(ctx); err != nil {
 		t.Fatalf("initial sync: %v", err)
 	}
@@ -299,6 +314,83 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 	if err = db.QueryRow(ctx, "SELECT count(*) FROM analytics.raw WHERE kind='users'").Scan(&countAfter); err != nil || countAfter != 10000 {
 		t.Fatalf("upsert duplicated users: count=%d error=%v", countAfter, err)
 	}
+	t.Run("concurrent cache miss performs one aggregation", func(t *testing.T) {
+		observed := &service{db: db, redis: offline, interval: time.Minute, obs: newObservability("analytics-service", nil)}
+		start := make(chan struct{})
+		var callers sync.WaitGroup
+		for i := 0; i < 24; i++ {
+			callers.Add(1)
+			go func() {
+				defer callers.Done()
+				<-start
+				recorder := httptest.NewRecorder()
+				observed.metrics(recorder, httptest.NewRequest("GET", "/metrics/ltv/summary?from=2019-03-07T00:00:00Z&to=2019-09-12T00:00:00Z", nil), "summary")
+				if recorder.Code != http.StatusOK {
+					t.Errorf("concurrent request status=%d", recorder.Code)
+				}
+			}()
+		}
+		close(start)
+		callers.Wait()
+		metric := &dto.Metric{}
+		if err := observed.obs.buildDuration.Write(metric); err != nil {
+			t.Fatal(err)
+		}
+		if metric.GetHistogram().GetSampleCount() != 1 {
+			t.Fatalf("identical requests aggregated %d times", metric.GetHistogram().GetSampleCount())
+		}
+	})
+	t.Run("failed commit keeps snapshot cursor and durable responses", func(t *testing.T) {
+		var beforeID int64
+		var beforeCursor time.Time
+		if err := db.QueryRow(ctx, "SELECT current_id,cursor_at FROM analytics.state WHERE id=1").Scan(&beforeID, &beforeCursor); err != nil {
+			t.Fatal(err)
+		}
+		before := requestMetrics("summary", "")
+		// Deferring the exception until COMMIT exercises the publication boundary,
+		// after all source copies, facts and standard answers have been prepared.
+		_, err := db.Exec(ctx, `CREATE FUNCTION analytics.reject_test_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected commit failure'; END $$;
+CREATE CONSTRAINT TRIGGER test_commit_failure AFTER UPDATE ON analytics.state DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION analytics.reject_test_commit()`)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = svc.sync(ctx); err == nil {
+			t.Fatal("deferred commit failure was ignored")
+		}
+		if _, err = db.Exec(ctx, "DROP TRIGGER test_commit_failure ON analytics.state; DROP FUNCTION analytics.reject_test_commit()"); err != nil {
+			t.Fatal(err)
+		}
+		var afterID int64
+		var afterCursor time.Time
+		if err = db.QueryRow(ctx, "SELECT current_id,cursor_at FROM analytics.state WHERE id=1").Scan(&afterID, &afterCursor); err != nil {
+			t.Fatal(err)
+		}
+		after := requestMetrics("summary", "")
+		if beforeID != afterID || !beforeCursor.Equal(afterCursor) || !bytes.Equal(before.Body.Bytes(), after.Body.Bytes()) {
+			t.Fatal("failed commit replaced published snapshot, cursor or cached body")
+		}
+	})
+	t.Run("published version survives a service restart and headers are bounded", func(t *testing.T) {
+		restarted := &service{db: db, redis: offline, interval: time.Minute}
+		if _, err := db.Exec(ctx, "UPDATE analytics.state SET next_sync=clock_timestamp()+interval '90 seconds' WHERE id=1"); err != nil {
+			t.Fatal(err)
+		}
+		recorder := httptest.NewRecorder()
+		restarted.metrics(recorder, httptest.NewRequest("GET", "/metrics/ltv/summary", nil), "summary")
+		if recorder.Code != 200 || recorder.Header().Get("Last-Modified") == "" || recorder.Header().Get("X-Data-As-Of") == "" {
+			t.Fatalf("restart response status=%d headers=%v", recorder.Code, recorder.Header())
+		}
+		var age int
+		if _, err := fmt.Sscanf(recorder.Header().Get("Cache-Control"), "public, max-age=%d", &age); err != nil || age < 0 || age > 90 {
+			t.Fatalf("invalid max-age: %s", recorder.Header().Get("Cache-Control"))
+		}
+		restarted.running.Store(true)
+		duringSync := httptest.NewRecorder()
+		restarted.metrics(duringSync, httptest.NewRequest("GET", "/metrics/ltv/summary", nil), "summary")
+		if duringSync.Header().Get("Cache-Control") != "public, max-age=0" {
+			t.Fatal("in-progress update allowed stale browser freshness")
+		}
+	})
 	// Bonus reads use the published index/cache even when all sources are down.
 	unavailable.Store(true)
 	bonusMux := http.NewServeMux()

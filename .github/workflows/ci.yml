@@ -1,0 +1,112 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Go race, PostgreSQL/Redis integration and lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:18-alpine@sha256:10a5c69a83035ab5239f5620d708520e8b28f5aa1f2b20143e6024532edadfb5
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ci-test
+          POSTGRES_DB: subscription_analytics
+        ports: [5432:5432]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d subscription_analytics"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+      redis:
+        image: redis:8-alpine@sha256:21090af93f8324db2f0f0f4f38a7c60369d47d917e000c3423d89d2ae2883537
+        ports: [6379:6379]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    env:
+      TEST_DATABASE_URL: postgres://postgres:ci-test@localhost:5432/subscription_analytics?sslmode=disable
+      TEST_REDIS_ADDR: localhost:6379
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version: '1.24.4'
+          cache-dependency-path: go.sum
+      - run: go test -race -count=1 ./...
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
+        with:
+          version: v2.1.6
+
+  frontend:
+    name: React types, lint, unit and browser tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm install --global npm@12.2.1 --no-audit --no-fund
+      - run: npm ci --no-audit --no-fund
+      - run: npm run typecheck && npm run lint && npm test && npm run build
+      - run: npx playwright install --with-deps chromium --only-shell
+      - run: npm run test:e2e
+
+  compose:
+    name: Fresh Docker stack, API and live browser acceptance
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      COMPOSE_PROJECT_NAME: subscription-ci
+      COMPOSE_PARALLEL_LIMIT: '2'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: '24.22.1'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Prepare isolated CI environment
+        run: node scripts/prepare-ci-env.mjs
+      - name: Build and start all services
+        run: |
+          docker compose --profile observability config --quiet
+          docker compose --profile observability up --build -d --wait --wait-timeout 300
+      - name: Check Prometheus configuration and rules
+        run: |
+          docker compose --profile observability exec -T prometheus promtool check config /etc/prometheus/prometheus.yml
+          docker compose --profile observability exec -T prometheus promtool check rules /etc/prometheus/alerts.yml
+      - name: Check live APIs, cache headers, bonus endpoints and operations
+        run: node --env-file=.env scripts/smoke.mjs
+      - name: Install browser test dependencies
+        working-directory: frontend
+        run: |
+          npm install --global npm@12.2.1 --no-audit --no-fund
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium --only-shell
+      - name: Use the actual embedded frontend and API
+        run: node --env-file=.env frontend/node_modules/@playwright/test/cli.js test --config frontend/playwright.live.config.ts
+      - name: Container logs on failure
+        if: failure()
+        run: docker compose --profile observability logs --no-color --tail 150
+      - name: Stop disposable CI stack
+        if: always()
+        run: docker compose --profile observability down --volumes

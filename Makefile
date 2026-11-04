@@ -4,6 +4,7 @@ NODE_IMAGE := node:24.22.1-alpine@sha256:06d7adf3e0ef61a13f1d28682726366f97a15aa
 FRONTEND_RUN := docker run --rm -v "$(CURDIR)/frontend:/app" -v subscope_frontend_modules:/app/node_modules -v subscope_frontend_npm_cache:/root/.npm -w /app $(NODE_IMAGE)
 FRONTEND_INSTALL := npm install --global npm@12.2.1 --no-audit --no-fund && npm ci --no-audit --no-fund
 COMPOSE_ENV ?= .env
+COMPOSE := docker compose --env-file "$(COMPOSE_ENV)"
 DEMO_DURATION ?= 3m
 DEMO_RPS ?= 10
 
@@ -26,16 +27,16 @@ help:
 	@echo "demo-traffic    send bounded read-only API traffic for Grafana"
 
 up:
-	docker compose up --build -d --wait
+	$(COMPOSE) --profile observability up --build -d --wait
 
 down:
-	docker compose down
+	$(COMPOSE) --profile observability down
 
 build:
-	docker compose build
+	$(COMPOSE) build
 
 logs:
-	docker compose logs -f analytics-service users-service subscriptions-service payments-service
+	$(COMPOSE) logs -f analytics-service users-service subscriptions-service payments-service
 
 test:
 	docker run --rm -v "$(CURDIR):/src" -w /src $(GO_IMAGE) go test ./...
@@ -47,7 +48,7 @@ lint:
 	docker run --rm -v "$(CURDIR):/src" -w /src $(LINT_IMAGE) golangci-lint run
 
 check: test-race lint frontend-check
-	docker compose config --quiet
+	$(COMPOSE) --profile observability config --quiet
 
 frontend-build:
 	docker build --file docker/analytics-service.Dockerfile --target frontend-export --output type=local,dest=internal/app/web/dist .
@@ -65,17 +66,17 @@ frontend-lint:
 	$(FRONTEND_RUN) sh -c '$(FRONTEND_INSTALL) && npm run typecheck && npm run lint'
 
 deploy:
-	docker compose up --build -d --wait
+	$(COMPOSE) --profile observability up --build -d --wait
 
 .PHONY: up-observability check-observability
 up-observability:
-	docker compose --profile observability up --build -d --wait
+	$(COMPOSE) --profile observability up --build -d --wait
 
 check-observability:
-	docker compose --profile observability config --quiet
-	docker compose --profile observability exec -T prometheus promtool check config /etc/prometheus/prometheus.yml
-	docker compose --profile observability exec -T prometheus promtool check rules /etc/prometheus/alerts.yml
+	$(COMPOSE) --profile observability config --quiet
+	$(COMPOSE) --profile observability exec -T prometheus promtool check config /etc/prometheus/prometheus.yml
+	$(COMPOSE) --profile observability exec -T prometheus promtool check rules /etc/prometheus/alerts.yml
 
 .PHONY: demo-traffic
 demo-traffic:
-	docker compose --env-file "$(COMPOSE_ENV)" --profile demo run --build --rm demo-traffic -duration "$(DEMO_DURATION)" -rps "$(DEMO_RPS)"
+	$(COMPOSE) --profile demo run --build --rm demo-traffic -duration "$(DEMO_DURATION)" -rps "$(DEMO_RPS)"
