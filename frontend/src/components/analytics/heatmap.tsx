@@ -23,7 +23,7 @@ export interface CohortHeatmapProps {
 function heatAppearance(value: number | null) {
   if (value == null) return { backgroundColor: "#f5f7f7", color: "#5d5f60" };
   const alpha = 0.06 + Math.max(0, Math.min(1, value)) * 0.94;
-  const components = [27, 108, 128]
+  const components = [29, 95, 191]
     .map((channel) => ((1 - alpha) * 255 + alpha * channel) / 255)
     .map((channel) =>
       channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
@@ -33,7 +33,7 @@ function heatAppearance(value: number | null) {
     (components[1] ?? 0) * 0.7152 +
     (components[2] ?? 0) * 0.0722;
   return {
-    backgroundColor: `rgba(27,108,128,${alpha})`,
+    backgroundColor: `rgba(29,95,191,${alpha})`,
     color: luminance < 0.179 ? "#fff" : "#000",
   };
 }
@@ -119,7 +119,7 @@ export function CohortHeatmap({
                 size="sm"
                 aria-pressed={metric === key}
                 onClick={() => onMetricChange(key)}
-                className={`-mb-px min-h-10 rounded-none border-b-2 px-2 text-[13px] shadow-none sm:min-h-8 ${metric === key ? "border-[#1b6c80] font-medium text-foreground" : "border-transparent font-normal text-muted-foreground"}`}
+                className={`-mb-px min-h-10 rounded-none border-b-2 px-2 text-[13px] shadow-none sm:min-h-8 ${metric === key ? "border-[#1d5fbf] font-medium text-foreground" : "border-transparent font-normal text-muted-foreground"}`}
               >
                 {label}
               </Button>

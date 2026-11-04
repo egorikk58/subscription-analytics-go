@@ -15,6 +15,13 @@ test('reviewer explores actual data, filters, Telegram lookup, seed preview and 
     await expect(page.locator('#content')).not.toHaveAttribute('aria-busy', 'true')
     await expect(page.getByRole('status', { name: 'Загрузка аналитики' })).toHaveCount(0)
   }
+  await page.goto('/#/overview')
+  await page.getByRole('button', { name: 'Подробнее', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Сравнение источников' })).toBeVisible()
+  const source = live.utm_groups[0].utm_link
+  await page.getByRole('dialog').getByRole('button', { name: source === 'unknown' ? 'Без UTM' : source, exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.getByLabel('Источник трафика UTM')).toHaveValue(source)
   await page.goto('/#/users')
   await page.locator('#filter-from').fill('2099-01-01')
   await expect(page.locator('#selection-count')).toHaveText('0')

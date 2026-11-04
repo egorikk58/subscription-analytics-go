@@ -12,7 +12,6 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   compact,
-  compactMoney,
   money,
   monthName,
   number,
@@ -27,13 +26,13 @@ import type {
   TimelineRow,
   TrendMetric,
 } from "@/types";
-import { EmptyState, Panel, PanelNote, PlanLabel } from "./panel";
+import { EmptyState, Panel, PanelNote } from "./panel";
 import { planColor, planName } from "./plans";
 
 const axisStyle = {
   fontSize: 12,
   fill: "#5d5f60",
-  fontFamily: '"IBM Plex Sans", sans-serif',
+  fontFamily: '"Geist", sans-serif',
 };
 const seriesDash = (index: number) =>
   [undefined, "6 3", "2 3", "10 3 2 3"][index % 4];
@@ -63,7 +62,7 @@ function MetricTabs<T extends string>({
           size="sm"
           aria-pressed={value === key}
           onClick={() => onChange(key)}
-          className={`-mb-px min-h-10 rounded-none border-b-2 px-2 text-[13px] shadow-none sm:min-h-8 ${value === key ? "border-[#1b6c80] font-medium text-foreground" : "border-transparent font-normal text-muted-foreground"}`}
+          className={`-mb-px min-h-10 rounded-none border-b-2 px-2 text-[13px] shadow-none sm:min-h-8 ${value === key ? "border-[#1d5fbf] font-medium text-foreground" : "border-transparent font-normal text-muted-foreground"}`}
         >
           {text}
         </Button>
@@ -138,7 +137,7 @@ export function TimelineChart({
   const minimum = points[0]?.timestamp ?? 0;
   const maximum = points.at(-1)?.timestamp ?? 1;
   const yFormat = (value: number) =>
-    moneyMetric ? compactMoney(value) : compact(value);
+    moneyMetric ? compact(value / 100) : compact(value);
   const pointValue = (point: TimelineRow) =>
     moneyMetric
       ? money(point[metric], metric === "mean_ltv_minor" ? 2 : 0)
@@ -146,7 +145,8 @@ export function TimelineChart({
   return (
     <Panel
       title={title}
-      description="Группировка по месяцу первой подписки"
+      description={`По месяцу первой подписки · ${moneyMetric ? '₽' : 'пользователи'}`}
+      className="timeline-panel"
       actions={
         <MetricTabs
           label="Показатель графика"
@@ -167,7 +167,7 @@ export function TimelineChart({
       ) : (
         <>
           <div
-            className="mx-2 rounded-sm outline-offset-2 focus-visible:outline-2 focus-visible:outline-[#1b6c80] sm:mx-3"
+            className="timeline-plot mx-2 rounded-sm outline-offset-2 focus-visible:outline-2 focus-visible:outline-[#1d5fbf] sm:mx-3"
             data-testid="timeline-chart"
             tabIndex={0}
             role="group"
@@ -191,7 +191,7 @@ export function TimelineChart({
           >
             <ResponsiveContainer
               width="100%"
-              height={210}
+              height="100%"
               minWidth={0}
               onResize={(nextWidth) => setWidth(nextWidth)}
             >
@@ -259,7 +259,7 @@ export function TimelineChart({
                 <Line
                   type="linear"
                   dataKey="value"
-                  stroke="#1b6c80"
+                  stroke="#1d5fbf"
                   strokeWidth={2.2}
                   dot={false}
                   activeDot={{ r: 4, strokeWidth: 2, fill: "white" }}
@@ -271,7 +271,7 @@ export function TimelineChart({
                     y={active.value}
                     r={4}
                     fill="white"
-                    stroke="#1b6c80"
+                    stroke="#1d5fbf"
                     strokeWidth={2}
                   />
                 )}
@@ -360,7 +360,7 @@ export function RetentionChart({
       }
     >
       <div
-        className="mx-2 rounded-sm outline-offset-2 focus-visible:outline-2 focus-visible:outline-[#1b6c80] sm:mx-3"
+        className="mx-2 rounded-sm outline-offset-2 focus-visible:outline-2 focus-visible:outline-[#1d5fbf] sm:mx-3"
         data-testid="retention-chart"
         tabIndex={0}
         role="group"
@@ -524,9 +524,11 @@ export function RetentionChart({
 export function RevenueRanking({
   plans,
   onPlanClick,
+  onOpenAll,
 }: {
   plans: PlanSummary[];
   onPlanClick: (planId: string) => void;
+  onOpenAll?: () => void;
 }) {
   const rows = [...plans].sort(
     (a, b) => b.total_revenue_minor - a.total_revenue_minor,
@@ -539,45 +541,32 @@ export function RevenueRanking({
   return (
     <Panel
       title="Выручка по тарифам"
-      description="Группы по первому тарифу пользователя"
+      description="Тариф первой подписки · вся жизнь пользователя"
     >
-      <div className="px-4 sm:px-[18px]">
+      <div className="plan-rankings">
         {rows.map((row) => (
           <button
             type="button"
             key={row.plan_id}
             onClick={() => onPlanClick(row.plan_id)}
-            className="grid min-h-[53px] w-full grid-cols-[1fr_auto] items-center gap-x-3 gap-y-1 border-b border-border/60 py-2 text-left text-[13px] last:border-0 hover:bg-muted/50 focus-visible:outline-offset-2"
+            className="plan-ranking"
             aria-label={`Открыть пользователей: ${planName(row.plan_id)}`}
           >
-            <PlanLabel planId={row.plan_id} />
-            <span className="text-right tabular-nums">
-              {money(row.total_revenue_minor)}
-            </span>
-            <span className="h-[3px] bg-muted">
-              <span
-                className="block h-full bg-[#1b6c80]"
-                style={{ width: `${(row.total_revenue_minor / max) * 100}%` }}
-              />
-            </span>
-            <span className="text-right text-muted-foreground tabular-nums">
-              {percent(total ? row.total_revenue_minor / total : 0)}
-            </span>
+            <span className="plan-ranking-main"><span className="plan-ranking-name"><span className="plan-duration" title={`${row.period_months} месяцев`}>{row.period_months}м</span>{planName(row.plan_id)}</span><span>{money(row.total_revenue_minor)}</span></span>
+            <span className="plan-ranking-meta"><span>{number(row.users_count)} пользователей</span><span>{percent(total ? row.total_revenue_minor / total : 0)} выручки</span></span>
+            <span className="plan-ranking-track"><span style={{ width: `${Math.max(0, row.total_revenue_minor / max) * 100}%` }}/></span>
           </button>
         ))}
       </div>
-      <PanelNote className="mt-3 border-t border-border pt-3">
+      <div className="ranking-footer">
         {total && best ? (
           <>
-            Наибольший средний LTV:{" "}
-            <strong className="font-medium text-foreground">
-              {planName(best.plan_id)} · {money(best.mean_ltv_minor, 2)}
-            </strong>
+            <span>Лучший LTV: <strong className="font-medium text-foreground">{planName(best.plan_id)}</strong></span>
           </>
         ) : (
           "В этом сегменте нет выручки."
         )}
-      </PanelNote>
+      {onOpenAll && <Button variant="link" onClick={onOpenAll}>Сравнить тарифы</Button>}</div>
     </Panel>
   );
 }
@@ -607,7 +596,7 @@ export function DistributionChart({
             </span>
             <span className="h-[3px] bg-muted">
               <span
-                className="block h-full bg-[#1b6c80]"
+                className="block h-full bg-[#1d5fbf]"
                 style={{ width: `${(row.users_count / max) * 100}%` }}
               />
             </span>

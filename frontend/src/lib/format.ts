@@ -2,7 +2,7 @@ export const planNames: Record<string, string> = {
   monthly: 'Месячный', quarterly: 'Квартальный', 'half-year': 'Полугодовой', yearly: 'Годовой',
 }
 export const planColors: Record<string, string> = {
-  monthly: '#1b6c80', quarterly: '#3b8e9d', 'half-year': '#738b91', yearly: '#515b65',
+  monthly: '#1d5fbf', quarterly: '#687a92', 'half-year': '#9199a5', yearly: '#292c32',
 }
 export const number = (value: number | bigint | null | undefined) => new Intl.NumberFormat('ru-RU').format(value ?? 0)
 

@@ -2,11 +2,11 @@ import { ChartNoAxesCombined, CircleDollarSign, Database, LayoutDashboard, Shuff
 import type { View } from '@/types'
 
 export const views: Record<View, { label: string; title: string; description: string; icon: LucideIcon }> = {
-  overview: { label: 'Обзор', title: 'Обзор подписок', description: 'Выручка, ценность пользователей и продления — в одном месте.', icon: LayoutDashboard },
-  revenue: { label: 'Выручка и LTV', title: 'Что приносит выручку', description: 'Сравнивайте тарифы и пожизненную ценность пользователей.', icon: CircleDollarSign },
-  retention: { label: 'Продления', title: 'Как продлевают подписки', description: 'Условная и кумулятивная доли по оплаченным периодам.', icon: ChartNoAxesCombined },
-  cohorts: { label: 'Когорты', title: 'Удержание в разрезе когорт', description: 'От первой подписки к каждому следующему продлению.', icon: Table2 },
-  users: { label: 'Выборка', title: 'Пользователи за цифрами', description: 'Исследуйте сегмент, сортируйте по LTV и открывайте конкретные записи.', icon: Users },
-  generator: { label: 'Генератор', title: 'Лаборатория тестовых данных', description: 'Создайте воспроизводимый набор и посмотрите, как меняется аналитика.', icon: Shuffle },
-  sources: { label: 'Источники и снимки', title: 'От данных к аналитике', description: 'Состав набора, история опроса и согласованный снимок.', icon: Database },
+  overview: { label: 'Обзор', title: 'Обзор подписок', description: 'Пожизненная выручка и продления четырёх подписочных тарифов.', icon: LayoutDashboard },
+  revenue: { label: 'Выручка и LTV', title: 'Выручка и LTV', description: 'Каждый пользователь остаётся в когорте своего первого тарифа.', icon: CircleDollarSign },
+  retention: { label: 'Продления', title: 'Продления подписок', description: 'Доли продлений среди пользователей с завершённым периодом.', icon: ChartNoAxesCombined },
+  cohorts: { label: 'Когорты', title: 'Анализ когорт', description: 'Удержание по месяцу первой подписки и номеру оплаченного периода.', icon: Table2 },
+  users: { label: 'Выборка', title: 'Пользователи', description: 'Пожизненная ценность, тариф и источник каждого пользователя.', icon: Users },
+  generator: { label: 'Генератор', title: 'Генератор данных', description: 'Воспроизводимые наборы с оплатами, возвратами и переходами между тарифами.', icon: Shuffle },
+  sources: { label: 'Источники и снимки', title: 'Источники и синхронизация', description: 'Состояние источников и актуальность опубликованного снимка.', icon: Database },
 }

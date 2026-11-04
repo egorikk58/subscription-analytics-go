@@ -21,11 +21,11 @@ export function Panel({
   return (
     <Card
       className={cn(
-        "flex min-w-0 flex-col gap-0 overflow-hidden rounded-lg border-border bg-card py-0 shadow-none",
+        "analytics-panel flex min-w-0 flex-col gap-0 overflow-hidden py-0",
         className,
       )}
     >
-      <header className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3 px-4 pb-3 pt-4 sm:px-[18px]">
+      <header className="panel-heading flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
         <div className="min-w-0">
           <h2 className="text-base font-medium leading-snug tracking-[-0.01em]">
             {title}
@@ -57,7 +57,7 @@ export function PanelNote({
   return (
     <p
       className={cn(
-        "px-4 pb-4 pt-2 text-[13px] leading-5 text-muted-foreground sm:px-[18px]",
+        "panel-caption px-4 pb-4 pt-2 sm:px-5",
         className,
       )}
     >

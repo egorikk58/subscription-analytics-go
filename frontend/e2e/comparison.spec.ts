@@ -88,3 +88,43 @@ test('late preview cannot replace live data after return, and CSV follows select
   await expect(page.locator('#mode-badge')).toContainText('Снимок')
   await expect(page.locator('#mode-badge')).toContainText('42')
 })
+
+test('quick navigation supports keyboard search and dismisses with Escape', async ({page}) => {
+  await page.goto('/#/overview')
+  await expect(page.locator('#mode-badge')).toBeVisible()
+  await page.keyboard.press('Control+k')
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.getByRole('combobox', {name:'Найти раздел'}).fill('Когорты')
+  await page.keyboard.press('Enter')
+  await expect(page).toHaveURL(/#\/cohorts$/)
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await page.keyboard.press('Control+k')
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+})
+
+test('phone filters disclose controls and a shared selection survives a reload', async ({page}) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'clipboard', {value: {writeText: async (value:string) => {
+      (window as unknown as {copiedSelection:string}).copiedSelection = value
+    }}})
+  })
+  await page.setViewportSize({width:390,height:844})
+  await page.goto('/#/overview')
+  await expect(page.locator('#mode-badge')).toBeVisible()
+  await expect(page.locator('#filter-plan')).toBeHidden()
+  await page.getByRole('button',{name:/^Фильтры/}).click()
+  await page.locator('#filter-plan').selectOption('yearly')
+  await page.locator('#filter-from').fill('2025-01-01')
+  await expect(page.locator('#content')).not.toHaveAttribute('aria-busy','true')
+  await page.getByRole('button',{name:'Скопировать ссылку на выборку'}).click()
+  const copied=await page.evaluate(() => (window as unknown as {copiedSelection:string}).copiedSelection)
+  expect(copied).toContain('plan_id=yearly')
+  expect(copied).toContain('from=2025-01-01')
+  await page.goto(copied)
+  await page.reload()
+  await page.getByRole('button',{name:/^Фильтры/}).click()
+  await expect(page.locator('#filter-plan')).toHaveValue('yearly')
+  await expect(page.locator('#filter-from')).toHaveValue('2025-01-01')
+})

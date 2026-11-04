@@ -29,7 +29,11 @@ export function App() {
   const path = location.pathname.replace(/^\//, '')
   const view: View = Object.hasOwn(views, path) ? path as View : 'overview'
   const [source, setSource] = useState<DataSource>({ mode: 'live' })
-  const [filters, setFilters] = useState<Filters>({ ...defaultFilters })
+  const [filters, setFilters] = useState<Filters>(() => {
+    const shared = new URLSearchParams(location.search)
+    const plan = shared.get('plan_id') || 'all'
+    return { ...defaultFilters, from: shared.get('from') || '', to: shared.get('to') || '', plan_id: ['monthly', 'quarterly', 'half-year', 'yearly'].includes(plan) ? plan as PlanId : 'all', selection: shared.get('selection') === 'chain' ? 'chain' : 'first_plan', utm_link: shared.get('utm_link') || '' }
+  })
   const [search, setSearch] = useState('')
   const delayedSearch = useDebouncedValue(search, 400)
   const debouncedSearch = search ? delayedSearch : ""
@@ -104,6 +108,18 @@ export function App() {
     void reportQuery.refetch(); void statusQuery.refetch()
     toast.info('Читаем текущий снимок. Источники опрашиваются по расписанию.')
   }
+  async function shareSelection() {
+    const url = new URL(window.location.href)
+    const selection = new URLSearchParams()
+    if (filters.from) selection.set('from', filters.from)
+    if (filters.to) selection.set('to', filters.to)
+    if (filters.plan_id !== 'all') selection.set('plan_id', filters.plan_id)
+    if (filters.utm_link) selection.set('utm_link', filters.utm_link)
+    if (filters.selection === 'chain') selection.set('selection', 'chain')
+    url.hash = '/' + view + (selection.size ? '?' + selection.toString() : '')
+    try { await navigator.clipboard.writeText(url.href); toast.success('Ссылка на выборку скопирована') }
+    catch { toast.error('Браузер не разрешил копирование ссылки') }
+  }
   function exportCSV() {
     if (!report) return
     const filename = `subscope-${view}-${report.mode === 'preview' ? 'seed-' + report.dataset.seed : 'snapshot-' + report.snapshot_id}.csv`
@@ -128,7 +144,7 @@ export function App() {
     return <AnalyticsPage view={view} report={data} plan={shownFilters?.plan_id ?? filters.plan_id} trend={trend} onTrendChange={setTrend} metric={metric} onMetricChange={setMetric} periods={periods} onPeriodsChange={setPeriods} onMonthClick={openMonth} onPlanClick={openPlan} onNavigate={openView} onUTMClick={utm => { setFilters(current => ({ ...current, utm_link: utm })); clearSelection() }}/>
   }
   return <><AppShell view={view} report={report} status={status} statusOffline={statusQuery.isError} isFetching={reportQuery.isFetching || generation.isPending} onRefresh={refresh} onExport={exportCSV} onReturnLive={returnLive}>
-    {view !== 'generator' && view !== 'sources' && <FilterBar appliedFilters={shownFilters} filters={filters} onChange={changeFilters} onReset={resetFilters} report={report} view={view} fetching={reportQuery.isFetching}/>}
+    {view !== 'generator' && view !== 'sources' && <FilterBar appliedFilters={shownFilters} filters={filters} onChange={changeFilters} onReset={resetFilters} onShare={() => { void shareSelection() }} report={report} view={view} fetching={reportQuery.isFetching}/>}
     {reportQuery.isError && <div id="error-banner" role="alert" className="mb-5 flex items-start gap-3 rounded-md bg-destructive/5 p-4 text-[13px] text-destructive"><AlertCircle className="size-4 shrink-0"/><div><p>{reportQuery.error.message}</p>{report && <p className="mt-1">Показан последний полученный снимок. Повторите запрос.</p>}<Button variant="link" className="mt-2 h-auto p-0 text-destructive" onClick={refresh}><RefreshCw className="size-3.5"/>Повторить</Button></div></div>}
     <div id="content" aria-busy={reportQuery.isFetching} inert={reportQuery.isPlaceholderData}>{report ? <Suspense fallback={<LoadingDashboard/>}>{content(report)}</Suspense> : reportQuery.isPending ? <LoadingDashboard/> : <div className="rounded-lg border border-dashed border-border px-4 py-12 text-center"><h2 className="font-medium">Данные пока недоступны</h2><p className="mt-2 text-sm text-muted-foreground">Дождитесь первого снимка или повторите запрос.</p></div>}</div>
   </AppShell><Toaster position="bottom-center"/></>
