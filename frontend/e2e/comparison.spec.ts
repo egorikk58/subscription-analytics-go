@@ -34,6 +34,25 @@ test('new filters do not relabel old data while a new cohort is loading', async 
   release()
   await expect(page.getByText(/Показаны данные:/)).toContainText('2025-01-01')
 })
+
+test('a pending tariff cannot relabel or activate the previous cohort matrix', async ({page}) => {
+  let release:()=>void=()=>{}
+  const gate=new Promise<void>(resolve=>{release=resolve})
+  await page.route('**/api/dashboard?**',async route=>{
+    if(new URL(route.request().url()).searchParams.get('plan_id')==='yearly') await gate
+    await route.fulfill({json:makeDashboard()})
+  })
+  await page.goto('/#/cohorts')
+  await expect(page.getByText('Месячный · кумулятивное удержание по периодам',{exact:true})).toBeVisible()
+  await page.locator('#filter-plan').selectOption('yearly')
+  await expect(page.locator('#content')).toHaveAttribute('aria-busy','true')
+  await expect(page.locator('#content')).toHaveAttribute('inert','')
+  await expect(page.getByText('Месячный · кумулятивное удержание по периодам',{exact:true})).toBeVisible()
+  await expect(page.getByText('Годовой · кумулятивное удержание по периодам',{exact:true})).toHaveCount(0)
+  release()
+  await expect(page.getByText('Годовой · кумулятивное удержание по периодам',{exact:true})).toBeVisible()
+  await expect(page.locator('#content')).not.toHaveAttribute('inert','')
+})
 test('API inspector exposes real HTTP validators and an empty 304 response', async ({page}) => {
   await page.route('**/metrics/ltv/summary',route=>route.request().headers()['if-none-match'] ? route.fulfill({status:304,headers:{etag:'"1"'}}) : route.fulfill({status:200,headers:{etag:'"1"','cache-control':'public, max-age=100'},json:{data_as_of:'2026-11-01T00:00:00Z',users_count:10000}}))
   await page.goto('/#/sources')
