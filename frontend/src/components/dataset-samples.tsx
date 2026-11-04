@@ -31,17 +31,17 @@ export function PlanName({ planId }: { planId: string }) {
 
 export function DatasetMetrics({ dataset }: { dataset: DatasetInfo }) {
   const metrics = [
-    ["Пользователи", dataset.users_count, "Уникальные UUID и Telegram ID"],
-    ["Подписки", dataset.subscriptions_count, "Тарифы на 1, 3, 6 и 12 месяцев"],
-    ["Платёжные записи", dataset.payments_count, "Оплаты, попытки и возвраты"],
-    ["Seed набора", dataset.seed, "Воспроизводимая генерация"],
+    ["Пользователи", dataset.users_count],
+    ["Подписки", dataset.subscriptions_count],
+    ["Платёжные записи", dataset.payments_count],
+    ["Seed", dataset.seed],
   ] as const;
   return (
     <section
       aria-label="Состав набора"
       className="mb-6 grid grid-cols-2 border-y border-border py-0 lg:grid-cols-4 lg:py-4"
     >
-      {metrics.map(([label, value, note], index) => (
+      {metrics.map(([label, value], index) => (
         <div
           key={label}
           className={`min-w-0 px-3 py-4 ${index % 2 ? "border-l border-border" : ""} ${index > 1 ? "border-t border-border lg:border-t-0" : ""} ${index > 0 ? "lg:border-l lg:border-border lg:px-5" : "lg:pl-0"}`}
@@ -50,7 +50,6 @@ export function DatasetMetrics({ dataset }: { dataset: DatasetInfo }) {
           <p className="mt-2 text-[27px] leading-tight font-normal tabular-nums tracking-tight">
             {value == null ? "—" : number(value)}
           </p>
-          <p className="mt-1.5 text-[13px] text-muted-foreground">{note}</p>
         </div>
       ))}
     </section>
@@ -79,9 +78,10 @@ export function DatasetPassport({
         {dataset.fingerprint.slice(0, 16)}…
       </span>,
     ],
-    ["Режим", isPreview ? "Предпросмотр" : "Снимок PostgreSQL"],
+    ["Режим", isPreview ? "Предпросмотр" : "Снимок"],
     ["Валюты оплат", Object.entries(dataset.currencies ?? { RUB: dataset.payments_count }).map(([currency, count]) => `${currency}: ${number(count)}`).join(' · ')],
-    ["Конвертация", "RUB по историческому курсу оплаты; курсы моков — демо-фикстуры"],
+    ["Валюта расчёта", "RUB"],
+    ["Источник курсов", "Генератор"],
   ];
   const quality = [
     ["Успешные оплаты", dataset.succeeded_count],
@@ -93,8 +93,7 @@ export function DatasetPassport({
   ] as const;
   return (
     <Panel
-      title="Паспорт набора"
-      description="Проверяемое происхождение тестовых данных"
+      title="Параметры набора"
     >
       <dl className="grid grid-cols-2 gap-x-4 gap-y-5 px-4 pb-5 sm:px-5">
         {metadata.map(([label, value]) => (
@@ -120,14 +119,7 @@ export function DatasetPassport({
           </li>
         ))}
       </ul>
-      <p className="mx-4 mb-4 rounded-md bg-muted/60 p-3 text-[13px] leading-relaxed text-muted-foreground sm:mx-5">
-        <strong className="font-medium text-foreground">
-          Тот же seed и параметры дают тот же fingerprint.
-        </strong>
-        <br />
-        UUID, даты, оплаты и связи воспроизводятся. Обязательные пограничные
-        случаи включены в набор.
-      </p>
+
     </Panel>
   );
 }
@@ -180,7 +172,7 @@ export function DatasetSamples({ dataset, sampleKind, onSampleKindChange }: Data
       ? samples.payments.map((record) => ({
           id: record.id,
           second: <StatusBadge status={record.status} />,
-          third: <span>{assetMoney(record.amount, record.currency)}{record.fx && <span className="mt-1 block text-xs text-muted-foreground">1 {record.currency} = {record.fx.rub_per_unit} RUB · демо</span>}</span>,
+          third: <span>{assetMoney(record.amount, record.currency)}{record.fx && <span className="mt-1 block text-xs text-muted-foreground">1 {record.currency} = {record.fx.rub_per_unit} RUB</span>}</span>,
           fourth: shortId(record.user_id),
           record,
         }))
@@ -208,11 +200,10 @@ export function DatasetSamples({ dataset, sampleKind, onSampleKindChange }: Data
         : ["ID пользователя", "Telegram ID", "Регистрация", "UTM"];
   return (
     <Panel
-      title="Записи сгенерированного набора"
-      description="Реальные объекты текущего снимка или предпросмотра"
+      title="Записи"
       actions={
         <Badge variant="secondary" className="rounded-sm font-normal">
-          Запись → JSON
+          JSON
         </Badge>
       }
     >

@@ -6,6 +6,8 @@ import (
 	"fmt"
 )
 
+const GeneratorVersion = "v3"
+
 // AutoUsersCount keeps a fresh dataset sizeable while retaining seed reproducibility.
 func AutoUsersCount(seed int64) int {
 	digest := sha256.Sum256([]byte(fmt.Sprintf("users-count/v1/%d", seed)))

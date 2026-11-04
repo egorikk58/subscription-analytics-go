@@ -1,10 +1,12 @@
 import { useState } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { webcrypto } from 'node:crypto';
 import {
   cleanup,
   fireEvent,
   render,
   screen,
+  waitFor,
   within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -13,7 +15,8 @@ import { GeneratorPage, type GeneratorPageProps } from "@/pages/generator";
 import { UsersPage } from "@/pages/users";
 import type { Dashboard, SeedConfig, UserSort } from "@/types";
 
-afterEach(cleanup);
+beforeEach(() => { vi.stubGlobal('crypto', webcrypto) });
+afterEach(() => { cleanup(); vi.unstubAllGlobals() });
 
 const config: SeedConfig = {
   seed: 42,
@@ -158,6 +161,7 @@ describe("GeneratorPage", () => {
     const seed = screen.getByLabelText("Seed", { selector: "input" });
     await user.clear(seed);
     await user.type(seed, "731");
+    await user.click(screen.getByRole('button', {name:'Вручную', exact:true}));
     await user.clear(screen.getByLabelText("Пользователей"));
     await user.type(screen.getByLabelText("Пользователей"), "15000");
     fireEvent.resize(window);
@@ -215,6 +219,7 @@ describe("Larger reproducible datasets", () => {
       screen.getByRole("button", { name: "Случайные параметры" }),
     );
     const input = screen.getByLabelText("Пользователей") as HTMLInputElement;
+    await waitFor(() => expect(Number(input.value)).toBeGreaterThanOrEqual(25000));
     const count = Number(input.value);
     expect(count).toBeGreaterThanOrEqual(25000);
     expect(count).toBeLessThanOrEqual(100000);
@@ -222,9 +227,10 @@ describe("Larger reproducible datasets", () => {
     await user.click(
       screen.getByRole("button", { name: "Сгенерировать набор", exact: true }),
     );
-    expect(onGenerate).toHaveBeenCalledWith(
-      expect.objectContaining({ users_count: count }),
-    );
+    expect(input).toBeDisabled();
+    const submitted = onGenerate.mock.calls[0]?.[0] as SeedConfig;
+    expect(submitted.users_count).toBeUndefined();
+    expect(submitted.seed).toBe(Number(screen.getByLabelText('Seed', {selector:'input'}).getAttribute('value')));
   });
 });
 

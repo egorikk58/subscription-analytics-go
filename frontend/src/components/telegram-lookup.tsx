@@ -19,8 +19,8 @@ export function TelegramLookup({ initialID = '' }: { initialID?: string }) {
     event.preventDefault(); setPending(true); setBody(''); setError('')
     try { setBody(await lookup(id.trim())) } catch (error) { setError(error instanceof Error ? error.message : 'Не удалось загрузить LTV') } finally { setPending(false) }
   }
-  return <Panel title="LTV по Telegram ID" description="Опубликованный снимок · все оплаты и возвраты за жизнь пользователя · RUB в копейках">
-    <form onSubmit={event => void submit(event)} className="flex flex-wrap gap-3 px-4 pb-5 sm:px-5"><Input aria-label="Telegram ID для LTV" value={id} onChange={event => setID(event.target.value)} inputMode="numeric" placeholder="Например, 1000000000" className="min-w-0 flex-1 sm:max-w-72"/><Button type="submit" disabled={pending}>{pending ? 'Загружаем…' : 'Получить LTV'}</Button></form>
+  return <Panel title="LTV по Telegram ID">
+    <form onSubmit={event => void submit(event)} className="flex flex-wrap gap-3 px-4 pb-5 sm:px-5"><Input aria-label="Telegram ID для LTV" value={id} onChange={event => setID(event.target.value)} inputMode="numeric" placeholder="Telegram ID" className="min-w-0 flex-1 sm:max-w-72"/><Button type="submit" disabled={pending}>{pending ? 'Загружаем…' : 'Получить LTV'}</Button></form>
     {error && <p role="alert" className="px-5 pb-5 text-sm text-destructive">{error}</p>}
     {body && <pre aria-label="Ответ LTV пользователя" className="mx-4 mb-5 whitespace-pre-wrap break-all rounded-md bg-muted p-4 text-xs leading-relaxed sm:mx-5">{body}</pre>}
   </Panel>

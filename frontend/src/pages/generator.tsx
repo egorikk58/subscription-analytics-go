@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   ArrowUpRight,
   Check,
@@ -21,6 +21,7 @@ import {
   NativeSelectOption,
 } from "@/components/ui/native-select";
 import { number } from "@/lib/format";
+import { autoUsersCount } from '@/lib/seed';
 import type {
   Dashboard,
   SeedConfig,
@@ -41,13 +42,15 @@ export interface GeneratorPageProps {
 interface SeedDraft {
   seed: string;
   users: string;
+  automatic: boolean;
   months: string;
   date: string;
 }
 function toDraft(config: SeedConfig): SeedDraft {
   return {
     seed: String(config.seed),
-    users: String(config.users_count),
+    users: config.users_count == null ? '' : String(config.users_count),
+    automatic: config.users_count == null,
     months: String(config.history_months),
     date: config.data_as_of.slice(0, 10),
   };
@@ -60,14 +63,12 @@ function parseDraft(draft: SeedDraft): SeedConfig | null {
     seed < 0 ||
     seed > 2147483647 ||
     !/^\d{4}-\d{2}-\d{2}$/.test(draft.date) ||
-    !Number.isInteger(Number(draft.users)) ||
-    Number(draft.users) < 10000 ||
-    Number(draft.users) > 100000
+    (!draft.automatic && (!Number.isInteger(Number(draft.users)) || Number(draft.users) < 10000 || Number(draft.users) > 100000))
   )
     return null;
   return {
     seed,
-    users_count: Number(draft.users),
+    ...(draft.automatic ? {} : { users_count: Number(draft.users) }),
     history_months: Number(draft.months),
     data_as_of: `${draft.date}T00:00:00Z`,
   };
@@ -89,13 +90,21 @@ export function GeneratorPage({
     toDraft(
       initialConfig || {
         seed: dataset.seed ?? 42,
-        users_count: Math.max(25000, dataset.users_count),
         history_months: dataset.history_months || 24,
         data_as_of: dataset.dataset_as_of || report.data_as_of,
       },
     ),
   );
   const [error, setError] = useState("");
+  const [automaticCount, setAutomaticCount] = useState<number>();
+  useEffect(() => {
+    let current = true;
+    const seed = Number(draft.seed);
+    if (draft.seed.trim() && Number.isInteger(seed) && seed >= 0 && seed <= 2147483647) {
+      void autoUsersCount(seed).then(count => { if (current) setAutomaticCount(count) }).catch(() => { if (current) setAutomaticCount(undefined) });
+    }
+    return () => { current = false };
+  }, [draft.seed]);
   function update(patch: Partial<SeedDraft>) {
     const next = { ...draft, ...patch };
     setDraft(next);
@@ -123,11 +132,10 @@ export function GeneratorPage({
     }
   }
   function randomParameters() {
-    const random = crypto.getRandomValues(new Uint32Array(3));
+    const random = crypto.getRandomValues(new Uint32Array(1));
     update({
       seed: String((random[0] ?? 0) % 2147483647),
-      users: String(25000 + ((random[1] ?? 0) % 75001)),
-      months: (random[2] ?? 0) % 2 ? "18" : "24",
+      automatic: true,
     });
   }
   function downloadPassport() {
@@ -166,26 +174,22 @@ export function GeneratorPage({
             </span>
           </p>
           <Button variant="ghost" size="sm" onClick={onExplore}>
-            Исследовать аналитику
+            Открыть обзор
             <ArrowUpRight className="size-4" />
           </Button>
         </div>
       )}
       <div className="flex flex-wrap items-center justify-between gap-2 text-[13px] text-muted-foreground">
-        <span>
-          Показан фактический набор: {number(dataset.users_count)}{" "}
-          пользователей.
-        </span>
+
         <Button variant="outline" onClick={downloadPassport}>
           <Download className="size-4" />
-          Скачать паспорт набора
+          Экспорт параметров
         </Button>
       </div>
       <DatasetMetrics dataset={dataset} />
       <div className="grid items-start gap-6 xl:grid-cols-2">
         <Panel
           title="Новый набор данных"
-          description="Параметры воспроизводимой генерации"
         >
           <form id="seed-form" onSubmit={submit} className="px-4 pb-5 sm:px-5">
             <fieldset
@@ -202,24 +206,21 @@ export function GeneratorPage({
                     <Shuffle className="size-4" />
                     Случайные параметры
                   </Button>
+                  <Button type="button" variant="outline" size="sm" aria-pressed={draft.automatic} onClick={() => update({ automatic: true })}>По seed</Button>
                   {[25000, 50000, 100000].map((count) => (
                     <Button
                       key={count}
                       type="button"
                       variant="outline"
                       size="sm"
-                      aria-pressed={Number(draft.users) === count}
-                      onClick={() => update({ users: String(count) })}
+                      aria-pressed={!draft.automatic && Number(draft.users) === count}
+                      onClick={() => update({ users: String(count), automatic: false })}
                     >
                       {number(count)} чел.
                     </Button>
                   ))}
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  Выберите размер от 10 000 до 100 000 или заполните случайные
-                  параметры, затем нажмите «Сгенерировать набор». Seed и
-                  параметры сохраняют воспроизводимость.
-                </p>
+
               </div>
               <div className="min-w-0 space-y-2">
                 <Label htmlFor="seed-value" className="text-[13px] font-normal">
@@ -258,18 +259,18 @@ export function GeneratorPage({
                 </div>
               </div>
               <div className="min-w-0 space-y-2">
-                <Label htmlFor="seed-users" className="text-[13px] font-normal">
-                  Пользователей
-                </Label>
+                <div className="flex items-center justify-between gap-2"><Label htmlFor="seed-users" className="text-[13px] font-normal">Пользователей</Label><Button type="button" variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => update({ automatic: !draft.automatic, users: String(automaticCount ?? dataset.users_count) })}>{draft.automatic ? 'Вручную' : 'По seed'}</Button></div>
                 <Input
                   id="seed-users"
                   type="number"
                   min={10000}
                   max={100000}
                   step={1}
-                  required
+                  required={!draft.automatic}
+                  disabled={draft.automatic}
+                  placeholder="По seed"
                   className="min-h-11 w-full text-sm sm:min-h-10"
-                  value={draft.users}
+                  value={draft.automatic ? automaticCount ?? '' : draft.users}
                   onChange={(event) => update({ users: event.target.value })}
                 />
               </div>
@@ -335,10 +336,7 @@ export function GeneratorPage({
                 {error}
               </p>
             )}
-            <p className="mt-4 text-[13px] leading-relaxed text-muted-foreground">
-              Набор создаётся генератором Go. Результат доступен во всех
-              дашбордах в режиме предпросмотра. Текущий снимок в БД сохраняется.
-            </p>
+
           </form>
         </Panel>
         <DatasetPassport dataset={dataset} isPreview={isPreview} />

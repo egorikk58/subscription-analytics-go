@@ -144,7 +144,12 @@ func compressPGAdminAsset(response *http.Response) error {
 func requestTimeouts(next http.Handler) http.Handler {
 	api := http.TimeoutHandler(next, 15*time.Second, `{"error":"request timeout","data_as_of":null}`)
 	tools := http.TimeoutHandler(next, 2*time.Minute, `{"error":"operations request timeout","data_as_of":null}`)
+	exports := http.TimeoutHandler(next, 90*time.Second, `{"error":"Формирование отчёта заняло слишком много времени. Уменьшите выборку или повторите запрос.","data_as_of":null}`)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/reports/export.xlsx" {
+			exports.ServeHTTP(w, r)
+			return
+		}
 		if strings.HasPrefix(r.URL.Path, "/db/") {
 			tools.ServeHTTP(w, r)
 			return

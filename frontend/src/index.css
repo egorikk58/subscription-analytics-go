@@ -151,7 +151,6 @@
 .metric-cell h2 { font-size: 13px; font-weight: 400; color: var(--muted-foreground); }
 .metric-cell .kpi-value { margin: 10px 0 9px; white-space: nowrap; font-size: clamp(22px,2.05vw,30px); font-weight: 500; line-height: 34px; letter-spacing: -1px; font-variant-numeric: tabular-nums; }
 .metric-cell:first-child .kpi-value { font-weight: 600; }
-.metric-cell > p:last-child { font-size: 13px; line-height: 19px; color: var(--muted-foreground); }
 .insight-line { display: flex; flex-wrap: wrap; align-items: center; gap: 7px; font-size: 13px; color: var(--muted-foreground); }
 .insight-line strong { color: var(--foreground); font-weight: 500; }
 .insight-line button { margin-left: auto; height: auto; padding: 0; font-size: 13px; }
@@ -268,7 +267,6 @@
   .metric-cell:nth-child(2n):before { top: 18px; bottom: 18px; }
   .metric-cell h2 { font-size: 13px; }
   .metric-cell .kpi-value { font-size: 23px; line-height: 29px; margin: 8px 0; letter-spacing: -.8px; }
-  .metric-cell > p:last-child { font-size: 12px; line-height: 17px; }
   .overview-primary, .overview-secondary, .analytics-pair { grid-template-columns: 1fr; }
   .analytics-layout { gap: 12px; }
   .timeline-plot { min-height: 190px; }

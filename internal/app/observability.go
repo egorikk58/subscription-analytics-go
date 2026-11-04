@@ -217,7 +217,7 @@ func metricRoute(path string) string {
 		}
 	}
 	switch path {
-	case "/", "/healthz", "/status", "/metrics", "/api/dashboard", "/api/demo/preview", "/api/plans", "/metrics/ltv/summary", "/metrics/ltv/by-plan", "/metrics/ltv/by-utm", "/metrics/retention", "/users", "/plans", "/subscriptions", "/payments", "/openapi.json", "/openapi-mocks.json":
+	case "/", "/healthz", "/status", "/metrics", "/api/dashboard", "/api/demo/preview", "/api/reports/export.xlsx", "/api/plans", "/metrics/ltv/summary", "/metrics/ltv/by-plan", "/metrics/ltv/by-utm", "/metrics/retention", "/users", "/plans", "/subscriptions", "/payments", "/openapi.json", "/openapi-mocks.json":
 		return path
 	}
 	return "unmatched"

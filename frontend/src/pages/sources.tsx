@@ -1,6 +1,6 @@
 import { OperationsLinks } from '@/components/operations-links';
 import { ApiInspector } from '@/components/api-inspector';
-import { ArrowRight, CreditCard, Layers, Users } from "lucide-react";
+import { CreditCard, Layers, Users } from "lucide-react";
 import { Panel } from "@/components/analytics/panel";
 import { DatasetMetrics, DatasetSamples } from "@/components/dataset-samples";
 import { Badge } from "@/components/ui/badge";
@@ -10,12 +10,11 @@ import type { Dashboard, ServiceStatus, DatasetSamples as DatasetSamplesType } f
 export interface SourcesPageProps {
   report: Dashboard;
   status: ServiceStatus | undefined;
-  isPreview: boolean;
   sampleKind?: keyof DatasetSamplesType;
   onSampleKindChange?: (kind: keyof DatasetSamplesType) => void;
 }
 
-export function SourcesPage({ report, status, isPreview, sampleKind, onSampleKindChange }: SourcesPageProps) {
+export function SourcesPage({ report, status, sampleKind, onSampleKindChange }: SourcesPageProps) {
   const dataset = report.dataset;
   const sources = [
     {
@@ -65,11 +64,6 @@ export function SourcesPage({ report, status, isPreview, sampleKind, onSampleKin
       <div className="grid items-start gap-6 xl:grid-cols-2">
         <Panel
           title="Источники набора"
-          description={
-            isPreview
-              ? "Предпросмотр получен генератором, источники рабочего сервиса не изменены"
-              : "Данные собраны фоновым опросом"
-          }
         >
           {sources.map(({ title, route, count, Icon }) => (
             <div
@@ -92,32 +86,10 @@ export function SourcesPage({ report, status, isPreview, sampleKind, onSampleKin
               </Badge>
             </div>
           ))}
-          <ol
-            aria-label="Путь данных"
-            className="flex flex-wrap items-center gap-x-2 gap-y-3 border-t border-border px-4 py-4 text-xs text-muted-foreground sm:px-5"
-          >
-            {[
-              "HTTP-источники",
-              "Проверка и расчёт",
-              "Снимок PostgreSQL",
-              "Redis / API",
-            ].map((step, index) => (
-              <li key={step} className="flex items-center gap-2">
-                {index > 0 && (
-                  <ArrowRight className="size-3" aria-hidden="true" />
-                )}
-                {step}
-              </li>
-            ))}
-          </ol>
+
         </Panel>
         <Panel
           title="Опубликованный снимок"
-          description={
-            isPreview
-              ? "Дашборды показывают preview; статус относится к рабочему сервису"
-              : "Одна согласованная версия во всех отчётах"
-          }
         >
           <dl className="grid grid-cols-2 gap-x-4 gap-y-5 px-4 pb-5 sm:px-5">
             {metadata.map(([label, value]) => (
@@ -127,10 +99,7 @@ export function SourcesPage({ report, status, isPreview, sampleKind, onSampleKin
               </div>
             ))}
           </dl>
-          <p className="mx-4 mb-4 rounded-md bg-muted/60 p-3 text-[13px] leading-relaxed text-muted-foreground sm:mx-5">
-            При сбое источника последний успешный снимок сохраняется. Отказ
-            Redis покрывается готовыми ответами PostgreSQL.
-          </p>
+
           {status?.last_error && (
             <p
               className="mx-4 mb-4 rounded-md bg-destructive/5 p-3 text-[13px] break-words text-destructive sm:mx-5"

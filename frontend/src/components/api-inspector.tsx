@@ -27,7 +27,7 @@ export function ApiInspector() {
     } catch (cause) { if (!request.signal.aborted) setError(cause instanceof Error ? cause.message : 'Не удалось выполнить запрос') }
     finally { if (!request.signal.aborted) setLoading(false) }
   }
-  return <Panel title="Проверка HTTP API" description="Реальные ответы опубликованного снимка БД. Предпросмотр seed не меняет этот API.">
+  return <Panel title="HTTP API">
     <div className="space-y-4 px-4 pb-5 sm:px-5"><div className="flex flex-wrap items-center gap-3"><NativeSelect aria-label="Маршрут API" value={route} disabled={loading} onChange={event => setRoute(event.target.value)} className="max-w-full font-mono text-xs" wrapperClassName="max-w-full">{routes.map(path => <NativeSelectOption key={path} value={path}>{path}</NativeSelectOption>)}</NativeSelect><Button variant="outline" onClick={() => void run(false)} disabled={loading}>Выполнить GET</Button><Button variant="outline" onClick={() => void run(true)} disabled={loading || result?.route !== route || !result.headers.etag}>Проверить 304</Button></div>
     {error && <p role="alert" className="text-sm text-destructive">{error}</p>}
     {result && <div className="space-y-3" aria-live="polite"><p className="text-sm font-medium">HTTP {result.status} <span className="break-all font-mono text-xs font-normal">{result.route}</span></p><dl className="grid gap-2 text-xs sm:grid-cols-[150px_1fr]">{Object.entries(result.headers).map(([key, value]) => <div key={key} className="contents"><dt className="font-mono text-muted-foreground">{key}</dt><dd className="break-all font-mono">{value}</dd></div>)}</dl><pre className="max-h-80 overflow-auto rounded-md bg-muted p-3 font-mono text-xs whitespace-pre-wrap break-all">{result.body}</pre></div>}

@@ -9,6 +9,7 @@ import { monthName, number, percent } from "@/lib/format";
 import type { CohortRow, PeriodRow, RetentionMetric } from "@/types";
 import { EmptyState, Panel } from "./panel";
 import { planName } from "./plans";
+import { heatAppearance } from '@/lib/visualization';
 
 export interface CohortHeatmapProps {
   rows: CohortRow[];
@@ -18,24 +19,6 @@ export interface CohortHeatmapProps {
   compact?: boolean;
   onMonthClick: (month: string) => void;
   onOpenAll?: () => void;
-}
-
-function heatAppearance(value: number | null) {
-  if (value == null) return { backgroundColor: "#f5f7f7", color: "#5d5f60" };
-  const alpha = 0.06 + Math.max(0, Math.min(1, value)) * 0.94;
-  const components = [29, 95, 191]
-    .map((channel) => ((1 - alpha) * 255 + alpha * channel) / 255)
-    .map((channel) =>
-      channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4,
-    );
-  const luminance =
-    (components[0] ?? 0) * 0.2126 +
-    (components[1] ?? 0) * 0.7152 +
-    (components[2] ?? 0) * 0.0722;
-  return {
-    backgroundColor: `rgba(29,95,191,${alpha})`,
-    color: luminance < 0.179 ? "#fff" : "#000",
-  };
 }
 
 function evidence(period: PeriodRow, metric: RetentionMetric) {
@@ -87,8 +70,7 @@ export function CohortHeatmap({
   };
   return (
     <Panel
-      title="Матрица когорт"
-      description={`${planName(planId === "all" ? "monthly" : planId)} · ${metric === "rate" ? "условное" : "кумулятивное"} удержание по периодам`}
+      title={`Матрица когорт · ${planName(planId === 'all' ? 'monthly' : planId)}`}
       actions={
         compact && onOpenAll ? (
           <Button
@@ -119,7 +101,7 @@ export function CohortHeatmap({
                 size="sm"
                 aria-pressed={metric === key}
                 onClick={() => onMetricChange(key)}
-                className={`-mb-px min-h-10 rounded-none border-b-2 px-2 text-[13px] shadow-none sm:min-h-8 ${metric === key ? "border-[#1d5fbf] font-medium text-foreground" : "border-transparent font-normal text-muted-foreground"}`}
+                className={`metric-tab -mb-px min-h-10 rounded-none border-b-2 px-2 text-[13px] shadow-none sm:min-h-8 ${metric === key ? "border-primary font-medium text-foreground" : "border-transparent font-normal text-muted-foreground"}`}
               >
                 {label}
               </Button>
@@ -258,7 +240,6 @@ export function CohortHeatmap({
             </table>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 pb-4 pt-3 text-[13px] text-muted-foreground sm:px-[18px]">
-            <span>Нажмите на месяц или ячейку для выборки</span>
             <span className="inline-flex items-center gap-1 whitespace-nowrap">
               <span>0%</span>
               {[0, 0.2, 0.4, 0.6, 0.8, 1].map((value) => (

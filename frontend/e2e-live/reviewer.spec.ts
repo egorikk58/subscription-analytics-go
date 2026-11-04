@@ -1,5 +1,31 @@
 import { expect, test } from '@playwright/test'
 
+test('both designs present the actual LTV and tariff renewals and keep phone navigation', async ({page, request}) => {
+  const live = await (await request.get('/api/dashboard')).json()
+  let actualLTV = ''
+  for (const design of ['a', 'b']) {
+    await page.goto('/?design='+design+'#/overview')
+    await expect(page.getByTestId('hero-ltv')).toBeVisible()
+    const displayed = await page.getByTestId('hero-ltv').getAttribute('aria-label')
+    expect(displayed).toContain(new Intl.NumberFormat('ru-RU', {minimumFractionDigits:2,maximumFractionDigits:2}).format(Number(live.summary.mean_ltv_minor)/100))
+    if (actualLTV) expect(displayed).toBe(actualLTV)
+    actualLTV = displayed!
+    if (design === 'a') {
+      const monthly = live.retention.find((row: {plan_id:string}) => row.plan_id === 'monthly')
+      const first = page.getByTestId('plan-renewal-matrix').getByRole('row').filter({hasText:'1 месяц'}).locator('.plan-heat-cell').first()
+      await expect(first).toHaveText(`${Math.round(monthly.periods[0].cumulative_rate*100)}%`)
+      await first.click()
+      await expect(page.locator('.matrix-selection')).toContainText(new Intl.NumberFormat('ru-RU').format(monthly.periods[0].cumulative_eligible))
+    } else await expect(page.getByTestId('retention-chart')).toBeVisible()
+  }
+  await page.setViewportSize({width:390,height:844})
+  await page.getByRole('button', {name:'Открыть меню'}).click()
+  await page.getByRole('dialog').getByRole('link', {name:'Генератор',exact:true}).click()
+  await expect(page.locator('#seed-form')).toBeVisible()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth)).toBeLessThanOrEqual(1)
+})
+
 test('reviewer explores actual data, filters, Telegram lookup, seed preview and HTTP cache', async ({ page, request }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -34,6 +60,7 @@ test('reviewer explores actual data, filters, Telegram lookup, seed preview and 
 
   await page.goto('/#/generator')
   await page.locator('#seed-value').fill('731')
+  await page.getByRole('button', {name:'Вручную',exact:true}).click()
   await page.locator('#seed-users').fill('10000')
   await page.getByRole('button', { name: 'Сгенерировать набор', exact: true }).click()
   await expect(page.locator('#mode-badge')).toContainText('731')

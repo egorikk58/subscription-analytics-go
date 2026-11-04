@@ -6,18 +6,15 @@ export function MetricStrip({ summary }: { summary: Summary }) {
     [
       "Пожизненная выручка",
       money(summary.total_revenue_minor),
-      "Успешные оплаты − возвраты",
     ],
-    ["Пользователи", number(summary.users_count), "В выбранном сегменте"],
+    ["Пользователи", number(summary.users_count)],
     [
       "Средний LTV",
       money(summary.mean_ltv_minor, 2),
-      "Включая пользователей без оплат",
     ],
     [
       "Медианный LTV",
       money(summary.median_ltv_minor, 2),
-      "Середина распределения",
     ],
   ];
   return (
@@ -25,7 +22,7 @@ export function MetricStrip({ summary }: { summary: Summary }) {
       className="metric-strip"
       aria-label="Показатели выбранного сегмента"
     >
-      {metrics.map(([label, value, description], index) => (
+      {metrics.map(([label, value], index) => (
         <article
           key={label}
           className="metric-cell"
@@ -38,9 +35,6 @@ export function MetricStrip({ summary }: { summary: Summary }) {
             data-testid={`metric-${index}`}
           >
             {value}
-          </p>
-          <p className="text-[13px] leading-5 text-muted-foreground">
-            {description}
           </p>
         </article>
       ))}

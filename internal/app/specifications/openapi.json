@@ -1082,14 +1082,13 @@
                 "$ref": "#/components/schemas/PreviewRequest"
               },
               "example": {
-                "seed": 731,
-                "users_count": 10000,
+                "seed": 42,
                 "history_months": 24,
                 "data_as_of": "2026-11-01T00:00:00Z"
               }
             }
           },
-          "description": "Один JSON-объект с параметрами генерации. Пример создаёт 10000 пользователей и не перезаписывает рабочую БД."
+          "description": "Параметры воспроизводимого набора. Без users_count размер определяется из seed; с users_count используется явно заданное количество. Рабочая БД не изменяется."
         },
         "responses": {
           "200": {
@@ -1509,6 +1508,368 @@
         },
         "description": "Укажите числовой Telegram ID, например 1000000001. Получите UUID, первый тариф, LTV в копейках, число успешных оплат и состояние последней подписки. Запрос использует текущий снимок без обращения к источникам. Пользователь без подписок имеет first_plan_id=null, current_status=none и нулевой LTV; неизвестный ID даёт 404."
       }
+    },
+    "/api/reports/export.xlsx": {
+      "get": {
+        "tags": [
+          "Отчёты Excel"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Начало диапазона даты САМОЙ ПЕРВОЙ подписки пользователя, включительно. RFC3339, например 2025-01-01T00:00:00Z. Если не задано — начало истории. Оплаты выбранных пользователей учитываются за всю жизнь.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "Конец диапазона даты САМОЙ ПЕРВОЙ подписки, не включительно. Например 2026-01-01T00:00:00Z вместе с from=2025-01-01T00:00:00Z выбирает когорту 2025 года. Значение должно быть позже from; время нормализуется в UTC.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "plan_id",
+            "in": "query",
+            "required": false,
+            "description": "Тариф: monthly — 1 месяц, quarterly — 3, half-year — 6, yearly — 12. Значение all выбирает все тарифы там, где оно есть в списке.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "monthly",
+                "quarterly",
+                "half-year",
+                "yearly"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "selection",
+            "in": "query",
+            "required": false,
+            "description": "Как отобрать пользователей по тарифу: first_plan — по самому первому тарифу; chain — по наличию первой цепочки выбранного тарифа, включая перешедших с другого. На /api/dashboard для chain нужен конкретный plan_id. Даты в обоих случаях относятся к самой первой подписке вообще.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "first_plan",
+                "chain"
+              ],
+              "default": "first_plan"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Поиск подстроки в UUID или Telegram ID пользователя, максимум 100 символов. Влияет только на список users, а не на сводку и графики дашборда.",
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "description": "Порядок пользователей: ltv_desc — сначала наибольший LTV; ltv_asc — сначала наименьший; joined_desc — сначала новые первые подписки. При равенстве используется UUID. Не меняет сводные метрики.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ltv_desc",
+                "ltv_asc",
+                "joined_desc"
+              ],
+              "default": "ltv_desc"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "ETag из предыдущего ответа к тому же адресу с теми же параметрами. При совпадении сервер вернёт 304 без тела. Для первого запроса оставьте пустым."
+          },
+          {
+            "name": "utm_link",
+            "in": "query",
+            "description": "Точное значение источника пользователя с учётом регистра, например campaign-0. Пробелы по краям удаляются. Без параметра выбираются все источники; пустое значение или unknown выбирает пользователей без UTM. Совмещается с фильтром первой подписки.",
+            "schema": {
+              "type": "string",
+              "maxLength": 2048
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Состав файла: аналитический отчёт с 7 листами и 4 диаграммами или полный реестр пользователей.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "analytics",
+                "users"
+              ],
+              "default": "analytics"
+            }
+          },
+          {
+            "name": "snapshot_id",
+            "in": "query",
+            "description": "Версия открытого снимка. Если она уже удалена, сервер вернёт 410 и не подменит её текущей версией. Без параметра выбирается текущий снимок. Только GET.",
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "minimum": 1
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "description": "Необязательная выборка ID: можно повторить параметр до 1000 раз. Все листы и графики ограничиваются этими пользователями вместе с остальными фильтрами.",
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "maxItems": 1000,
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "name": "fingerprint",
+            "in": "query",
+            "description": "Ожидаемый fingerprint набора из dashboard. Несовпадение даёт 409.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Выгружает всю выборку без пагинации. Поиск, даты, тариф, UTM и выбранные ID применяются ко всем листам. Суммы представлены в RUB, LTV считается за всю жизнь. Продления и когорты относятся к пользователям этой выгрузки. Файл содержит числовые значения, таблицы с фильтрами, закреплённые заголовки и редактируемые диаграммы. Снимок и источники не изменяются. Cache-Control: private, no-store.",
+        "responses": {
+          "200": {
+            "description": "Excel-книга .xlsx. Имя файла передаётся в Content-Disposition, время снимка — в X-Data-As-Of.",
+            "content": {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Некорректные параметры."
+          },
+          "409": {
+            "description": "Набор не совпал с ожидаемым fingerprint."
+          },
+          "410": {
+            "description": "Указанный снимок уже недоступен. Обновите dashboard."
+          },
+          "429": {
+            "description": "Другой отчёт или генерация уже выполняется. Retry-After: 2."
+          },
+          "500": {
+            "description": "Не удалось сформировать книгу."
+          },
+          "503": {
+            "description": "Первый снимок ещё не готов или БД недоступна."
+          }
+        },
+        "operationId": "exportAnalyticsWorkbook",
+        "summary": "Скачать Excel-отчёт из опубликованного снимка"
+      },
+      "post": {
+        "tags": [
+          "Отчёты Excel"
+        ],
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "description": "Начало диапазона даты САМОЙ ПЕРВОЙ подписки пользователя, включительно. RFC3339, например 2025-01-01T00:00:00Z. Если не задано — начало истории. Оплаты выбранных пользователей учитываются за всю жизнь.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "description": "Конец диапазона даты САМОЙ ПЕРВОЙ подписки, не включительно. Например 2026-01-01T00:00:00Z вместе с from=2025-01-01T00:00:00Z выбирает когорту 2025 года. Значение должно быть позже from; время нормализуется в UTC.",
+            "schema": {
+              "type": "string",
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "plan_id",
+            "in": "query",
+            "required": false,
+            "description": "Тариф: monthly — 1 месяц, quarterly — 3, half-year — 6, yearly — 12. Значение all выбирает все тарифы там, где оно есть в списке.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "all",
+                "monthly",
+                "quarterly",
+                "half-year",
+                "yearly"
+              ],
+              "default": "all"
+            }
+          },
+          {
+            "name": "selection",
+            "in": "query",
+            "required": false,
+            "description": "Как отобрать пользователей по тарифу: first_plan — по самому первому тарифу; chain — по наличию первой цепочки выбранного тарифа, включая перешедших с другого. На /api/dashboard для chain нужен конкретный plan_id. Даты в обоих случаях относятся к самой первой подписке вообще.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "first_plan",
+                "chain"
+              ],
+              "default": "first_plan"
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "required": false,
+            "description": "Поиск подстроки в UUID или Telegram ID пользователя, максимум 100 символов. Влияет только на список users, а не на сводку и графики дашборда.",
+            "schema": {
+              "type": "string",
+              "maxLength": 100
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "description": "Порядок пользователей: ltv_desc — сначала наибольший LTV; ltv_asc — сначала наименьший; joined_desc — сначала новые первые подписки. При равенстве используется UUID. Не меняет сводные метрики.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ltv_desc",
+                "ltv_asc",
+                "joined_desc"
+              ],
+              "default": "ltv_desc"
+            }
+          },
+          {
+            "name": "If-None-Match",
+            "in": "header",
+            "schema": {
+              "type": "string"
+            },
+            "description": "ETag из предыдущего ответа к тому же адресу с теми же параметрами. При совпадении сервер вернёт 304 без тела. Для первого запроса оставьте пустым."
+          },
+          {
+            "name": "utm_link",
+            "in": "query",
+            "description": "Точное значение источника пользователя с учётом регистра, например campaign-0. Пробелы по краям удаляются. Без параметра выбираются все источники; пустое значение или unknown выбирает пользователей без UTM. Совмещается с фильтром первой подписки.",
+            "schema": {
+              "type": "string",
+              "maxLength": 2048
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "description": "Состав файла: аналитический отчёт с 7 листами и 4 диаграммами или полный реестр пользователей.",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "analytics",
+                "users"
+              ],
+              "default": "analytics"
+            }
+          },
+          {
+            "name": "user_id",
+            "in": "query",
+            "description": "Необязательная выборка ID: можно повторить параметр до 1000 раз. Все листы и графики ограничиваются этими пользователями вместе с остальными фильтрами.",
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "maxItems": 1000,
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              }
+            }
+          },
+          {
+            "name": "fingerprint",
+            "in": "query",
+            "description": "Ожидаемый fingerprint набора из dashboard. Несовпадение даёт 409.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Выгружает всю выборку без пагинации. Поиск, даты, тариф, UTM и выбранные ID применяются ко всем листам. Суммы представлены в RUB, LTV считается за всю жизнь. Продления и когорты относятся к пользователям этой выгрузки. Файл содержит числовые значения, таблицы с фильтрами, закреплённые заголовки и редактируемые диаграммы. Снимок и источники не изменяются. Cache-Control: private, no-store.",
+        "responses": {
+          "200": {
+            "description": "Excel-книга .xlsx. Имя файла передаётся в Content-Disposition, время снимка — в X-Data-As-Of.",
+            "content": {
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Некорректные параметры."
+          },
+          "409": {
+            "description": "Набор не совпал с ожидаемым fingerprint."
+          },
+          "410": {
+            "description": "Указанный снимок уже недоступен. Обновите dashboard."
+          },
+          "429": {
+            "description": "Другой отчёт или генерация уже выполняется. Retry-After: 2."
+          },
+          "500": {
+            "description": "Не удалось сформировать книгу."
+          },
+          "503": {
+            "description": "Первый снимок ещё не готов или БД недоступна."
+          }
+        },
+        "operationId": "exportPreviewWorkbook",
+        "summary": "Скачать Excel-отчёт по seed без изменения БД",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PreviewRequest"
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1850,14 +2211,15 @@
           "seed": {
             "type": "integer",
             "format": "int64",
-            "description": "Целочисленный seed генератора. Вместе с размером, глубиной истории и временем среза воспроизводит те же данные и fingerprint."
+            "description": "Целочисленный seed генератора. Вместе с размером, глубиной истории и временем среза воспроизводит те же данные и fingerprint.",
+            "default": 42
           },
           "users_count": {
             "type": "integer",
             "minimum": 10000,
             "maximum": 100000,
-            "default": 31419,
-            "description": "Размер всего набора пользователей. Для генерации допустимо от 10000 до 100000."
+            "description": "Необязательный фиксированный размер от 10000 до 100000. Если поле пропущено или равно null, размер 25000–100000 вычисляется из переданного seed независимым SHA-256-потоком users-count/v1. Например, seed=42 даёт 31419 пользователей. Повтор запроса с теми же параметрами воспроизводит набор.",
+            "nullable": true
           },
           "history_months": {
             "type": "integer",
@@ -1870,11 +2232,12 @@
             "type": "string",
             "format": "date-time",
             "example": "2026-11-01T00:00:00Z",
-            "description": "Фиксированное время среза RFC3339: от 2000-01-01T00:00:00Z до текущего времени включительно. Будущая дата отклоняется."
+            "description": "Фиксированное время среза RFC3339: от 2000-01-01T00:00:00Z до текущего времени включительно. Будущая дата отклоняется.",
+            "default": "2026-11-01T00:00:00Z"
           }
         },
-        "title": "Параметры тестового набора",
-        "description": "Один JSON-объект размером не более 4096 байт; неизвестные поля запрещены. Неуказанные поля сохраняют значения по умолчанию: seed=42, users_count=31419, history_months=24, data_as_of=2026-11-01T00:00:00Z."
+        "title": "Параметры генерации",
+        "description": "Один JSON-объект размером до 4096 байт; неизвестные поля запрещены. По умолчанию seed=42, history_months=24, data_as_of=2026-11-01T00:00:00Z. Пропущенный users_count зависит от фактического seed запроса, а не от seed по умолчанию."
       },
       "SourceUser": {
         "type": "object",
@@ -2899,6 +3262,10 @@
     {
       "name": "Пользователи",
       "description": "Поиск конкретного пользователя по числовому Telegram ID."
+    },
+    {
+      "name": "Отчёты Excel",
+      "description": "Полная аналитическая книга и реестр пользователей по текущей выборке."
     }
   ]
 }

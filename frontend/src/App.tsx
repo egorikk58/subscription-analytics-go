@@ -14,7 +14,9 @@ const UsersPage = lazy(() => import('@/pages/users').then(module => ({ default: 
 const GeneratorPage = lazy(() => import('@/pages/generator').then(module => ({ default: module.GeneratorPage })))
 const SourcesPage = lazy(() => import('@/pages/sources').then(module => ({ default: module.SourcesPage })))
 import { ApiError, dashboardKey, defaultFilters, defaultParams, fetchDashboard, fetchPreview, fetchStatus } from '@/lib/api'
-import { downloadCSV } from '@/lib/csv'
+import { ExportDialog } from '@/components/export-dialog'
+import type { ExportContext } from '@/lib/excel'
+import { initialDesign, saveDesign, type DesignVariant } from '@/lib/design'
 import type { Dashboard, DataSource, Filters, PlanId, RetentionMetric, SeedConfig, TrendMetric, UserSort, View } from '@/types'
 
 function useDebouncedValue<T>(value: T, delay: number): T {
@@ -26,6 +28,13 @@ function LoadingDashboard() { return <div className="space-y-6" role="status" ar
 
 export function App() {
   const navigate = useNavigate(), location = useLocation(), queryClient = useQueryClient()
+  const [design, setDesign] = useState<DesignVariant>(initialDesign)
+  useEffect(() => {
+    document.documentElement.dataset.design = design
+    document.documentElement.classList.toggle('dark', design === 'a')
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', design === 'a' ? '#0a0b0d' : '#f3eee3')
+  }, [design])
+  function changeDesign(next: DesignVariant) { setDesign(next); saveDesign(next) }
   const path = location.pathname.replace(/^\//, '')
   const view: View = Object.hasOwn(views, path) ? path as View : 'overview'
   const [source, setSource] = useState<DataSource>({ mode: 'live' })
@@ -42,6 +51,7 @@ export function App() {
   const [sampleKind, setSampleKind] = useState<"users" | "subscriptions" | "payments">("payments")
   const [sort, setSort] = useState<UserSort>('ltv_desc'), [page, setPage] = useState(1)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [exportContext, setExportContext] = useState<ExportContext | null>(null)
   const [trend, setTrend] = useState<TrendMetric>('total_revenue_minor')
   const [metric, setMetric] = useState<RetentionMetric>('cumulative_rate')
   const [periods, setPeriods] = useState(12)
@@ -87,7 +97,7 @@ export function App() {
       const nextSource: DataSource = { mode: 'preview', config }
       queryClient.setQueryData(dashboardKey(nextSource, { ...defaultParams, sort }), {report: nextReport, params: {...defaultParams, sort}})
       setSource(nextSource); setFilters({ ...defaultFilters }); setSearch(''); clearSelection()
-      toast.success(`Создан набор seed ${config.seed}. Откройте любой дашборд.`)
+      toast.success(`Набор seed ${config.seed} создан`)
     },
   })
   async function generate(config: SeedConfig): Promise<void> {
@@ -120,32 +130,19 @@ export function App() {
     try { await navigator.clipboard.writeText(url.href); toast.success('Ссылка на выборку скопирована') }
     catch { toast.error('Браузер не разрешил копирование ссылки') }
   }
-  function exportCSV() {
-    if (!report) return
-    const filename = `subscope-${view}-${report.mode === 'preview' ? 'seed-' + report.dataset.seed : 'snapshot-' + report.snapshot_id}.csv`
-    if (view === 'users') {
-      const rows = report.users.items.filter(user => !selectedIds.size || selectedIds.has(user.id))
-      downloadCSV(filename, ['user_id', 'telegram_id', 'first_subscription_at', 'first_plan_id', 'ltv_minor'], rows.map(user => [user.id, user.telegram_id, user.first_subscription_at, user.first_plan_id, user.ltv_minor]))
-      toast.success(selectedIds.size ? 'Экспортированы выбранные записи текущей страницы' : 'Экспортирована текущая страница выборки')
-    } else if (view === 'generator' || view === 'sources') {
-      const rows = report.dataset.samples[sampleKind]
-      const headers = [...new Set(rows.flatMap(row => Object.keys(row)))]
-      downloadCSV(filename, headers, rows.map(row => headers.map(header => Object.entries(row).find(([key]) => key === header)?.[1])))
-      toast.success('Экспортированы образцы выбранного типа записей')
-    } else {
-      downloadCSV(filename, ['plan_id', 'users_count', 'total_revenue_minor', 'mean_ltv_minor', 'median_ltv_minor'], report.plans.map(row => [row.plan_id, row.users_count, row.total_revenue_minor, row.mean_ltv_minor, row.median_ltv_minor]))
-      toast.success('Экспортировано сравнение тарифов текущего сегмента')
-    }
+  function exportExcel() {
+    if (!report || !shownFilters) return
+    setExportContext({ report, params: { ...shownFilters }, source, selectedIds: [...selectedIds] })
   }
   function content(data: Dashboard) {
     if (view === 'users') return <UsersPage report={data} search={search} sort={sort} onSearchChange={value => { setSearch(value); clearSelection() }} onSortChange={value => { setSort(value); clearSelection() }} onPageChange={value => { setPage(value); setSelectedIds(new Set()) }} selectedIds={selectedIds} onSelectionChange={setSelectedIds} isFetching={reportQuery.isFetching}/>
     if (view === 'generator') return <GeneratorPage report={data} onGenerate={generate} isGenerating={generation.isPending} isPreview={data.mode === 'preview'} onExplore={() => openView('overview')} initialConfig={seedDraft} onConfigChange={setSeedDraft} sampleKind={sampleKind} onSampleKindChange={setSampleKind}/>
-    if (view === 'sources') return <SourcesPage report={data} status={status} isPreview={data.mode === 'preview'} sampleKind={sampleKind} onSampleKindChange={setSampleKind}/>
-    return <AnalyticsPage view={view} report={data} plan={shownFilters?.plan_id ?? filters.plan_id} trend={trend} onTrendChange={setTrend} metric={metric} onMetricChange={setMetric} periods={periods} onPeriodsChange={setPeriods} onMonthClick={openMonth} onPlanClick={openPlan} onNavigate={openView} onUTMClick={utm => { setFilters(current => ({ ...current, utm_link: utm })); clearSelection() }}/>
+    if (view === 'sources') return <SourcesPage report={data} status={status} sampleKind={sampleKind} onSampleKindChange={setSampleKind}/>
+    return <AnalyticsPage design={design} view={view} report={data} plan={shownFilters?.plan_id ?? filters.plan_id} trend={trend} onTrendChange={setTrend} metric={metric} onMetricChange={setMetric} periods={periods} onPeriodsChange={setPeriods} onMonthClick={openMonth} onPlanClick={openPlan} onNavigate={openView} onUTMClick={utm => { setFilters(current => ({ ...current, utm_link: utm })); clearSelection() }}/>
   }
-  return <><AppShell view={view} report={report} status={status} statusOffline={statusQuery.isError} isFetching={reportQuery.isFetching || generation.isPending} onRefresh={refresh} onExport={exportCSV} onReturnLive={returnLive}>
+  return <><AppShell design={design} onDesignChange={changeDesign} view={view} report={report} status={status} statusOffline={statusQuery.isError} isFetching={reportQuery.isFetching || generation.isPending} onRefresh={refresh} onExport={exportExcel} onReturnLive={returnLive}>
     {view !== 'generator' && view !== 'sources' && <FilterBar appliedFilters={shownFilters} filters={filters} onChange={changeFilters} onReset={resetFilters} onShare={() => { void shareSelection() }} report={report} view={view} fetching={reportQuery.isFetching}/>}
-    {reportQuery.isError && <div id="error-banner" role="alert" className="mb-5 flex items-start gap-3 rounded-md bg-destructive/5 p-4 text-[13px] text-destructive"><AlertCircle className="size-4 shrink-0"/><div><p>{reportQuery.error.message}</p>{report && <p className="mt-1">Показан последний полученный снимок. Повторите запрос.</p>}<Button variant="link" className="mt-2 h-auto p-0 text-destructive" onClick={refresh}><RefreshCw className="size-3.5"/>Повторить</Button></div></div>}
+    {reportQuery.isError && <div id="error-banner" role="alert" className="mb-5 flex items-start gap-3 rounded-md bg-destructive/5 p-4 text-[13px] text-destructive"><AlertCircle className="size-4 shrink-0"/><div><p>{reportQuery.error.message}</p>{report && <p className="mt-1">Последний доступный снимок</p>}<Button variant="link" className="mt-2 h-auto p-0 text-destructive" onClick={refresh}><RefreshCw className="size-3.5"/>Повторить</Button></div></div>}
     <div id="content" aria-busy={reportQuery.isFetching} inert={reportQuery.isPlaceholderData}>{report ? <Suspense fallback={<LoadingDashboard/>}>{content(report)}</Suspense> : reportQuery.isPending ? <LoadingDashboard/> : <div className="rounded-lg border border-dashed border-border px-4 py-12 text-center"><h2 className="font-medium">Данные пока недоступны</h2><p className="mt-2 text-sm text-muted-foreground">Дождитесь первого снимка или повторите запрос.</p></div>}</div>
-  </AppShell><Toaster position="bottom-center"/></>
+  </AppShell>{exportContext && <ExportDialog context={exportContext} onClose={() => setExportContext(null)}/>}<Toaster position="bottom-center" theme={design === 'a' ? 'dark' : 'light'}/></>
 }

@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CohortRow, PeriodRow, TimelineRow } from "@/types";
 import { CohortHeatmap } from "./heatmap";
-import { TimelineChart } from "./charts";
+import { RetentionChart, TimelineChart } from "./charts";
 
 beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
@@ -179,6 +179,15 @@ describe("cohort denominator and keyboard evidence", () => {
 });
 
 describe("timeline drilldown", () => {
+  it('places quarterly renewals at calendar months 3 and 6 and reads their actual denominators', async () => {
+    const user = userEvent.setup();
+    render(<RetentionChart calendarMonths reports={[{plan_id:'quarterly', cohort_size:40, periods:fixturePeriods()}]} metric="cumulative_rate" onMetricChange={vi.fn()} maxPeriods={2}/>);
+    const graph = screen.getByTestId('retention-chart');
+    act(() => graph.focus());
+    expect(screen.getByTestId('retention-selection')).toHaveTextContent(/3 мес.*Квартальный.*12,5\s*%.*40/);
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByTestId('retention-selection')).toHaveTextContent(/6 мес.*Квартальный.*2,5\s*%.*40/);
+  });
   it("opens the keyboard-selected month while reading exact monetary values", async () => {
     const user = userEvent.setup();
     const rows: TimelineRow[] = [

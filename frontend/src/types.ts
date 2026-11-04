@@ -57,7 +57,7 @@ export interface ServiceStatus {
   snapshot_id: number | null; data_as_of: string | null; last_success_at: string | null
   next_sync_at: string | null; last_error: string | null; sync_in_progress: boolean
 }
-export interface SeedConfig { seed: number; users_count: number; history_months: number; data_as_of: string }
+export interface SeedConfig { seed: number; users_count?: number; history_months: number; data_as_of: string }
 export type DataSource = { mode: 'live' } | { mode: 'preview'; config: SeedConfig }
 export interface Filters { from: string; to: string; plan_id: PlanFilter; selection: Selection; utm_link?: string }
 export interface DashboardParams extends Filters { page: number; search: string; sort: UserSort }

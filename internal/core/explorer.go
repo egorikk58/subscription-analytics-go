@@ -232,45 +232,10 @@ func (s Snapshot) Dashboard(q DashboardQuery) (Dashboard, error) {
 	}
 	sort.Strings(out.UTMOptions)
 	out.Selection = q.Selection
-	if q.Selection != "first_plan" && q.Selection != "chain" {
-		return out, fmt.Errorf("invalid selection")
+	dateFacts, selected, err := s.selectDashboardFacts(q)
+	if err != nil {
+		return out, err
 	}
-	if q.Plan != "" && q.Plan != "all" {
-		valid := false
-		for _, p := range s.Plans {
-			if p.ID == q.Plan {
-				valid = true
-			}
-		}
-		if !valid {
-			return out, fmt.Errorf("unknown plan_id")
-		}
-	}
-	dateFacts := []Fact{}
-	selected := []Fact{}
-	for _, f := range s.Facts {
-		if q.UTMLink != nil && NormalizeUTM(f.UTMLink) != NormalizeUTM(*q.UTMLink) {
-			continue
-		}
-		if (q.From != nil && (f.First == nil || f.First.Before(*q.From))) || (q.To != nil && (f.First == nil || !f.First.Before(*q.To))) {
-			continue
-		}
-		dateFacts = append(dateFacts, f)
-		matches := q.Plan == "" || q.Plan == "all" || f.FirstPlan == q.Plan
-		if q.Selection == "chain" && q.Plan != "" && q.Plan != "all" {
-			matches = false
-			for _, chain := range f.Chains {
-				if chain.PlanID == q.Plan {
-					matches = true
-					break
-				}
-			}
-		}
-		if matches {
-			selected = append(selected, f)
-		}
-	}
-	var err error
 	out.Summary, err = summary(selected)
 	if err != nil {
 		return out, err
@@ -367,8 +332,76 @@ func (s Snapshot) Dashboard(q DashboardQuery) (Dashboard, error) {
 		}
 		out.Distribution = append(out.Distribution, row)
 	}
+	candidates := orderedUserFacts(selected, q.Search, q.Sort)
+	page := max(1, q.Page)
+	start := min((page-1)*20, len(candidates))
+	end := min(start+20, len(candidates))
+	out.Users = UserPage{Items: []UserRow{}, Page: page, PageSize: 20, Total: len(candidates), Pages: (len(candidates) + 19) / 20}
+	for _, f := range candidates[start:end] {
+		out.Users.Items = append(out.Users.Items, UserRow{f.ID, f.TelegramID, f.First, f.FirstPlan, f.LTV, f.UTMLink})
+	}
+	return out, nil
+}
+
+// SelectedFacts returns the entire dashboard user selection, without pagination.
+// Exports share the same filtering and ordering rules as the interactive list.
+func (s Snapshot) SelectedFacts(q DashboardQuery) ([]Fact, error) {
+	_, selected, err := s.selectDashboardFacts(q)
+	if err != nil {
+		return nil, err
+	}
+	return orderedUserFacts(selected, q.Search, q.Sort), nil
+}
+
+func (s Snapshot) selectDashboardFacts(q DashboardQuery) ([]Fact, []Fact, error) {
+	if q.Selection == "" {
+		q.Selection = "first_plan"
+	}
+	if q.Selection != "first_plan" && q.Selection != "chain" {
+		return nil, nil, fmt.Errorf("invalid selection")
+	}
+	if q.Plan != "" && q.Plan != "all" {
+		valid := false
+		for _, p := range s.Plans {
+			if p.ID == q.Plan {
+				valid = true
+			}
+		}
+		if !valid {
+			return nil, nil, fmt.Errorf("unknown plan_id")
+		}
+	}
+	dateFacts := []Fact{}
+	selected := []Fact{}
+	for _, f := range s.Facts {
+		if q.UTMLink != nil && NormalizeUTM(f.UTMLink) != NormalizeUTM(*q.UTMLink) {
+			continue
+		}
+		if (q.From != nil && (f.First == nil || f.First.Before(*q.From))) || (q.To != nil && (f.First == nil || !f.First.Before(*q.To))) {
+			continue
+		}
+		dateFacts = append(dateFacts, f)
+		matches := q.Plan == "" || q.Plan == "all" || f.FirstPlan == q.Plan
+		if q.Selection == "chain" && q.Plan != "" && q.Plan != "all" {
+			matches = false
+			for _, chain := range f.Chains {
+				if chain.PlanID == q.Plan {
+					matches = true
+					break
+				}
+			}
+		}
+		if matches {
+			selected = append(selected, f)
+		}
+	}
+
+	return dateFacts, selected, nil
+}
+
+func orderedUserFacts(selected []Fact, searchText, sortBy string) []Fact {
 	candidates := []Fact{}
-	search := strings.ToLower(q.Search)
+	search := strings.ToLower(searchText)
 	for _, f := range selected {
 		if search == "" || strings.Contains(strings.ToLower(f.ID), search) || strings.Contains(strconv.FormatInt(f.TelegramID, 10), search) {
 			candidates = append(candidates, f)
@@ -376,7 +409,7 @@ func (s Snapshot) Dashboard(q DashboardQuery) (Dashboard, error) {
 	}
 	sort.Slice(candidates, func(i, j int) bool {
 		a, b := candidates[i], candidates[j]
-		switch q.Sort {
+		switch sortBy {
 		case "joined_desc":
 			if a.First == nil && b.First == nil {
 				return a.ID < b.ID
@@ -401,12 +434,6 @@ func (s Snapshot) Dashboard(q DashboardQuery) (Dashboard, error) {
 		}
 		return a.ID < b.ID
 	})
-	page := max(1, q.Page)
-	start := min((page-1)*20, len(candidates))
-	end := min(start+20, len(candidates))
-	out.Users = UserPage{Items: []UserRow{}, Page: page, PageSize: 20, Total: len(candidates), Pages: (len(candidates) + 19) / 20}
-	for _, f := range candidates[start:end] {
-		out.Users.Items = append(out.Users.Items, UserRow{f.ID, f.TelegramID, f.First, f.FirstPlan, f.LTV, f.UTMLink})
-	}
-	return out, nil
+
+	return candidates
 }

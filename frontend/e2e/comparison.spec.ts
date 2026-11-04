@@ -9,16 +9,38 @@ test('all seven React sections fit desktop, tablet and phone with fixture API', 
   const errors:string[]=[];page.on('pageerror', error => errors.push(error.message))
   for(const width of [1440,768,390]) {
     await page.setViewportSize({width,height:1000})
+    for (const design of ['a', 'b']) {
     for(const view of ['overview','revenue','retention','cohorts','users','generator','sources']) {
-      await page.goto('/#/'+view)
+      await page.goto('/?design='+design+'#/'+view)
       await expect(page.locator('[data-frontend-stack]')).toBeVisible()
-      await expect(page.locator('#mode-badge')).toContainText('seed 42')
+      await expect(page.locator('#mode-badge')).toContainText('Снимок #1')
       await expect(page.locator('#content')).not.toHaveAttribute('aria-busy','true')
       await expect(page.getByRole('status',{name:'Загрузка аналитики'})).toHaveCount(0)
       expect(await page.evaluate(()=>document.documentElement.scrollWidth-innerWidth), `${view} at ${width}`).toBeLessThanOrEqual(1)
     }
+    }
   }
   expect(errors).toEqual([])
+})
+
+test('design switch preserves the segment and renewal controls and survives reload', async ({page}) => {
+  await page.goto('/?design=a#/overview')
+  await expect(page.locator('#mode-badge')).toBeVisible()
+  await page.locator('#filter-plan').selectOption('quarterly')
+  await page.getByLabel('Число периодов матрицы').selectOption('6')
+  await page.getByRole('group', {name:'Доля продлений по тарифам'}).getByRole('button', {name:'Условная', exact:true}).click()
+  await expect(page.locator('#content')).not.toHaveAttribute('aria-busy','true')
+  const before = await page.locator('#selection-count').innerText()
+  await page.getByRole('button', {name:'Светлое оформление',exact:true}).click()
+  await expect(page.locator('[data-design-variant]')).toHaveAttribute('data-design-variant','b')
+  await expect(page.locator('#filter-plan')).toHaveValue('quarterly')
+  await expect(page.locator('#selection-count')).toHaveText(before)
+  await expect(page.getByRole('group', {name:'Доля продлений', exact:true}).getByRole('button', {name:'Условная', exact:true})).toHaveAttribute('aria-pressed','true')
+  await expect(page).toHaveURL(/\?design=b#\/overview/)
+  await page.getByRole('button', {name:'Тёмное оформление',exact:true}).click()
+  await expect(page.getByLabel('Число периодов матрицы')).toHaveValue('6')
+  await page.reload()
+  await expect(page.locator('[data-design-variant]')).toHaveAttribute('data-design-variant','a')
 })
 test('new filters do not relabel old data while a new cohort is loading', async ({page}) => {
   let release:()=>void=()=>{}
@@ -29,10 +51,10 @@ test('new filters do not relabel old data while a new cohort is loading', async 
   })
   await page.goto('/#/overview');await expect(page.locator('#mode-badge')).toBeVisible()
   await page.locator('#filter-from').fill('2025-01-01')
-  await expect(page.getByText(/Показаны данные:/)).toContainText('начало истории')
-  await expect(page.getByText(/Показаны данные:/)).toContainText('Загружается новая выборка')
+  await expect(page.getByText(/Выборка:/)).toContainText('начало истории')
+  await expect(page.getByText(/Выборка:/)).toContainText('Обновление')
   release()
-  await expect(page.getByText(/Показаны данные:/)).toContainText('2025-01-01')
+  await expect(page.getByText(/Выборка:/)).toContainText('2025-01-01')
 })
 
 test('a pending tariff cannot relabel or activate the previous cohort matrix', async ({page}) => {
@@ -43,14 +65,14 @@ test('a pending tariff cannot relabel or activate the previous cohort matrix', a
     await route.fulfill({json:makeDashboard()})
   })
   await page.goto('/#/cohorts')
-  await expect(page.getByText('Месячный · кумулятивное удержание по периодам',{exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Матрица когорт · Месячный',exact:true})).toBeVisible()
   await page.locator('#filter-plan').selectOption('yearly')
   await expect(page.locator('#content')).toHaveAttribute('aria-busy','true')
   await expect(page.locator('#content')).toHaveAttribute('inert','')
-  await expect(page.getByText('Месячный · кумулятивное удержание по периодам',{exact:true})).toBeVisible()
-  await expect(page.getByText('Годовой · кумулятивное удержание по периодам',{exact:true})).toHaveCount(0)
+  await expect(page.getByRole('heading',{name:'Матрица когорт · Месячный',exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Матрица когорт · Годовой',exact:true})).toHaveCount(0)
   release()
-  await expect(page.getByText('Годовой · кумулятивное удержание по периодам',{exact:true})).toBeVisible()
+  await expect(page.getByRole('heading',{name:'Матрица когорт · Годовой',exact:true})).toBeVisible()
   await expect(page.locator('#content')).not.toHaveAttribute('inert','')
 })
 test('API inspector exposes real HTTP validators and an empty 304 response', async ({page}) => {
@@ -63,7 +85,7 @@ test('API inspector exposes real HTTP validators and an empty 304 response', asy
   await expect(page.getByText('Тело ответа отсутствует')).toBeVisible()
 })
 
-test('late preview cannot replace live data after return, and CSV follows selected sample tab', async ({page}) => {
+test('preview Excel uses its seed, and a late generation cannot replace live data after return', async ({page}) => {
   let release:()=>void=()=>{}
   const gate=new Promise<void>(resolve=>{release=resolve})
   await page.route('**/api/demo/preview?**', async route => {
@@ -77,16 +99,24 @@ test('late preview cannot replace live data after return, and CSV follows select
   await page.getByRole('button',{name:'Сгенерировать набор',exact:true}).click()
   await expect(page.locator('#mode-badge')).toContainText('731')
   await page.getByRole('tab',{name:'Пользователи',exact:true}).click()
-  const download=page.waitForEvent('download');await page.locator('#export-button').click()
-  const stream=await (await download).createReadStream();let csv='';for await(const chunk of stream!) csv+=chunk.toString()
-  expect(csv).toContain('telegram_id');expect(csv).not.toContain('subscription_id')
+  await page.route('**/api/reports/export.xlsx?**', async route => {
+    expect(route.request().method()).toBe('POST')
+    expect(route.request().postDataJSON().seed).toBe(731)
+    expect(new URL(route.request().url()).searchParams.has('snapshot_id')).toBe(false)
+    await route.fulfill({contentType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',headers:{'content-disposition':'attachment; filename="subscope-analytics-seed-731.xlsx"'},body:Buffer.from('PK-fixture')})
+  })
+  await page.locator('#export-button').click()
+  await expect(page.getByRole('dialog',{name:'Экспорт в Excel'})).toBeVisible()
+  const download=page.waitForEvent('download');await page.locator('#download-excel').click()
+  expect((await download).suggestedFilename()).toBe('subscope-analytics-seed-731.xlsx')
+  await expect(page.getByRole('dialog',{name:'Экспорт в Excel'})).toHaveCount(0)
   await page.locator('#seed-value').fill('732')
   await page.getByRole('button',{name:'Сгенерировать набор',exact:true}).click()
   await expect(page.locator('#generate-button')).toBeDisabled()
   await page.locator('#return-live').click()
   release()
   await expect(page.locator('#mode-badge')).toContainText('Снимок')
-  await expect(page.locator('#mode-badge')).toContainText('42')
+  await expect(page.locator('#mode-badge')).toContainText('Снимок #1')
 })
 
 test('quick navigation supports keyboard search and dismisses with Escape', async ({page}) => {
@@ -127,4 +157,26 @@ test('phone filters disclose controls and a shared selection survives a reload',
   await page.getByRole('button',{name:/^Фильтры/}).click()
   await expect(page.locator('#filter-plan')).toHaveValue('yearly')
   await expect(page.locator('#filter-from')).toHaveValue('2025-01-01')
+})
+
+test('Excel export captures a checked user and shows a retryable failure in the dialog', async ({page}) => {
+  await page.goto('/#/users')
+  await expect(page.locator('#select-page')).toBeVisible()
+  await page.locator('#select-page').click()
+  await page.locator('#export-button').click()
+  await expect(page.locator('#export-scope')).toHaveValue('selected')
+  await page.locator('#export-kind').selectOption('users')
+  await page.route('**/api/reports/export.xlsx?**', async route => {
+    const query=new URL(route.request().url()).searchParams
+    expect(query.get('snapshot_id')).toBe('1')
+    expect(query.get('kind')).toBe('users')
+    expect(query.getAll('user_id')).toEqual([makeDashboard().users.items[0]!.id])
+    expect(query.has('page')).toBe(false)
+    await route.fulfill({status:429,json:{error:'Отчёт уже формируется'}})
+  })
+  await page.locator('#download-excel').click()
+  await expect(page.getByRole('dialog').getByRole('alert')).toHaveText('Отчёт уже формируется')
+  await expect(page.locator('#download-excel')).toBeEnabled()
+  await page.getByRole('button',{name:'Закрыть',exact:true}).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
 })

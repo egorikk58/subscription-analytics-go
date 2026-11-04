@@ -43,7 +43,7 @@ func exerciseLegacyMigration(t *testing.T, ctx context.Context, db *pgxpool.Pool
 		t.Fatal(err)
 	}
 	rows.Close()
-	batch.Queue("UPDATE analytics.seed SET config=regexp_replace(config,'^v2/','v1/') WHERE id=1")
+	batch.Queue("UPDATE analytics.seed SET config=regexp_replace(config,'^v[23]/','v1/') WHERE id=1")
 	if err = db.SendBatch(ctx, batch).Close(); err != nil {
 		t.Fatal(err)
 	}

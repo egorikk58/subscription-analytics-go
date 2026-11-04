@@ -5,7 +5,6 @@ import { planColor, planName } from "./plans";
 
 export interface PanelProps {
   title: ReactNode;
-  description?: ReactNode;
   actions?: ReactNode;
   children: ReactNode;
   className?: string;
@@ -13,7 +12,6 @@ export interface PanelProps {
 
 export function Panel({
   title,
-  description,
   actions,
   children,
   className,
@@ -30,11 +28,6 @@ export function Panel({
           <h2 className="text-base font-medium leading-snug tracking-[-0.01em]">
             {title}
           </h2>
-          {description && (
-            <p className="mt-1 text-[13px] leading-5 text-muted-foreground">
-              {description}
-            </p>
-          )}
         </div>
         {actions && (
           <div className="flex max-w-full shrink-0 items-center gap-2">
@@ -47,36 +40,14 @@ export function Panel({
   );
 }
 
-export function PanelNote({
-  children,
-  className,
-}: {
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <p
-      className={cn(
-        "panel-caption px-4 pb-4 pt-2 sm:px-5",
-        className,
-      )}
-    >
-      {children}
-    </p>
-  );
-}
-
 export function EmptyState({
-  message = "Для этой выборки пока нет наблюдений",
+  message = "Нет данных",
 }: {
   message?: string;
 }) {
   return (
     <div className="px-5 py-10 text-center">
       <p className="text-sm font-medium">{message}</p>
-      <p className="mt-2 text-[13px] leading-5 text-muted-foreground">
-        Выберите другой тариф или расширьте период первой подписки.
-      </p>
     </div>
   );
 }

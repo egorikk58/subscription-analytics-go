@@ -5,6 +5,7 @@ import { HashRouter } from 'react-router-dom'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { App } from './App'
 import './index.css'
+import './designs.css'
 
 const queryClient = new QueryClient({ defaultOptions: { queries: { refetchOnWindowFocus: false } } })
 createRoot(document.getElementById('root')!).render(

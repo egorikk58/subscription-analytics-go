@@ -89,12 +89,16 @@ func TestPGAdminTimeoutDoesNotExtendMetricsDeadline(t *testing.T) {
 			if remaining < 119*time.Second || remaining > 120*time.Second {
 				t.Errorf("pgAdmin deadline=%s", remaining)
 			}
+		} else if r.URL.Path == "/api/reports/export.xlsx" {
+			if remaining < 89*time.Second || remaining > 90*time.Second {
+				t.Errorf("export deadline=%s", remaining)
+			}
 		} else if remaining < 14*time.Second || remaining > 15*time.Second {
 			t.Errorf("API deadline=%s", remaining)
 		}
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	for _, path := range []string{"/db/static/vendor.js", "/metrics/ltv/summary"} {
+	for _, path := range []string{"/db/static/vendor.js", "/api/reports/export.xlsx", "/metrics/ltv/summary"} {
 		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest("GET", path, nil))
 	}
 }

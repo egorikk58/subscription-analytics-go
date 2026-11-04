@@ -85,9 +85,7 @@ export function UsersPage({
   const empty = (
     <div className="px-5 py-12 text-center">
       <p className="font-medium">Ничего не найдено</p>
-      <p className="mt-2 text-[13px] text-muted-foreground">
-        Измените поисковый запрос или расширьте период первой подписки.
-      </p>
+
     </div>
   );
   return (
@@ -95,7 +93,6 @@ export function UsersPage({
       {report.mode === 'live' && <div className="mb-6"><TelegramLookup initialID={String(data.items[0]?.telegram_id ?? '')}/></div>}
       <Panel
         title="Пользователи выборки"
-        description={`${number(data.total)} записей · ${data.page_size} на странице · поиск не меняет показатели дашборда`}
         actions={
           <Badge variant="secondary" className="rounded-sm font-normal">
             {report.mode === "preview" ? "Предпросмотр" : "Снимок данных"}

@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -179,19 +178,8 @@ func (s *service) preview(w http.ResponseWriter, r *http.Request) {
 		write(w, http.StatusBadRequest, map[string]any{"error": e.Error(), "data_as_of": nil})
 		return
 	}
-	p := previewRequest{Seed: 42, UsersCount: core.AutoUsersCount(42), HistoryMonths: 24, DataAsOf: "2026-11-01T00:00:00Z"}
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096))
-	decoder.DisallowUnknownFields()
-	if e = decoder.Decode(&p); e != nil {
-		write(w, http.StatusBadRequest, map[string]any{"error": "invalid generation parameters", "data_as_of": nil})
-		return
-	}
-	var extra any
-	if decoder.Decode(&extra) != io.EOF {
-		write(w, http.StatusBadRequest, map[string]any{"error": "generation body must contain one JSON object", "data_as_of": nil})
-		return
-	}
-	asof, e := validatePreview(p, time.Now())
+	r.Body = http.MaxBytesReader(w, r.Body, 4096)
+	p, asof, e := previewConfig(r)
 	if e != nil {
 		write(w, http.StatusBadRequest, map[string]any{"error": e.Error(), "data_as_of": nil})
 		return
@@ -213,7 +201,7 @@ func (s *service) preview(w http.ResponseWriter, r *http.Request) {
 		write(w, http.StatusInternalServerError, map[string]any{"error": "cannot generate dataset", "data_as_of": nil})
 		return
 	}
-	_ = snapshot.Dataset.SetConfig(fmt.Sprintf("v2/%d/%d/%d/%s", p.Seed, p.UsersCount, p.HistoryMonths, asof.Format(time.RFC3339)))
+	_ = snapshot.Dataset.SetConfig(fmt.Sprintf("%s/%d/%d/%d/%s", core.GeneratorVersion, p.Seed, p.UsersCount, p.HistoryMonths, asof.Format(time.RFC3339)))
 	report, e := snapshot.Dashboard(q)
 	if e != nil {
 		write(w, http.StatusBadRequest, map[string]any{"error": e.Error(), "data_as_of": asof})

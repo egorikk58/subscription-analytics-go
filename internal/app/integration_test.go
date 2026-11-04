@@ -221,6 +221,7 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 		t.Fatal(err)
 	}
 	redisKey := fmt.Sprintf("snapshot:%d:%s", snapshotID, cacheKey("summary", core.Filter{Periods: 12}))
+	t.Run("Excel export pins the snapshot and applies filters", func(t *testing.T) { exerciseWorkbookExport(t, svc, snapshotID) })
 	if os.Getenv("TEST_REDIS_ADDR") != "" {
 		// DB 15 is reserved for this disposable integration fixture.
 		if err = cache.Del(ctx, redisKey).Err(); err != nil {

@@ -25,7 +25,6 @@ export function PlanComparison({
   return (
     <Panel
       title="Сравнение тарифов"
-      description="Все последующие оплаты пользователя остаются в его первом тарифе"
     >
       <Table
         className="min-w-[650px] text-[13px]"
@@ -110,8 +109,7 @@ export function RetentionTable({
 }) {
   return (
     <Panel
-      title="Проверка расчёта"
-      description="Числитель и оба знаменателя для каждого периода"
+      title="Продления по периодам"
       actions={
         <label
           className="flex items-center gap-2 text-[13px] text-muted-foreground"

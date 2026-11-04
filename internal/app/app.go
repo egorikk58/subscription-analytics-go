@@ -101,6 +101,8 @@ func run(ctx context.Context, kind string) error {
 		mux.HandleFunc("GET /status", worker.status)
 		mux.HandleFunc("GET /api/dashboard", worker.dashboard)
 		mux.HandleFunc("POST /api/demo/preview", worker.preview)
+		mux.HandleFunc("GET /api/reports/export.xlsx", worker.exportWorkbook)
+		mux.HandleFunc("POST /api/reports/export.xlsx", worker.exportWorkbook)
 		mux.HandleFunc("GET /users/by-telegram/{telegram_id}/ltv", worker.telegramLTV)
 		for _, route := range []string{"summary", "by-plan", "by-utm", "retention", "plans"} {
 			name := route
@@ -239,17 +241,16 @@ func bootstrap(ctx context.Context, db *pgxpool.Pool) error {
 	if err != nil {
 		return err
 	}
-	config := fmt.Sprintf("v2/%d/%d/%d/%s", seed, count, months, asof.Format(time.RFC3339))
+	config := fmt.Sprintf("%s/%d/%d/%d/%s", core.GeneratorVersion, seed, count, months, asof.Format(time.RFC3339))
 	if exists {
-		normalized := strings.Replace(strings.Replace(old, "v1/", "v2/", 1), "v2-migrated/", "v2/", 1)
-		if normalized != config {
+		if !sameDatasetParameters(old, config) {
 			return fmt.Errorf("seed parameters differ: use a separate database")
 		}
 		if strings.HasPrefix(old, "v1/") {
 			if e = upgradePayments(ctx, tx); e != nil {
 				return e
 			}
-			if _, e = tx.Exec(ctx, "UPDATE analytics.seed SET config=$1 WHERE id=1", strings.Replace(config, "v2/", "v2-migrated/", 1)); e != nil {
+			if _, e = tx.Exec(ctx, "UPDATE analytics.seed SET config=$1 WHERE id=1", strings.Replace(old, "v1/", "v2-migrated/", 1)); e != nil {
 				return e
 			}
 		}
