@@ -1,9 +1,9 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "Internal mock source contracts",
+    "title": "Внутренние источники — пользователи, подписки и платежи",
     "version": "1.0.0",
-    "description": "These services are deliberately not published. Try-it-out needs access from the Docker network. /plans also uses the items/has_more envelope."
+    "description": "Контракты трёх мок-сервисов: users-service, subscriptions-service и payments-service.\n\n**Адреса доступны только внутри Docker-сети.** Запуск Try it out («Попробовать») из обычного браузера не достигнет этих сервисов. Для запросов с компьютера выберите в списке сверху **«API аналитики»**.\n\nСписки используют обёртку `items` / `has_more`, включая `/plans`. Страницы начинаются с 1. `updated_since` включает граничные записи; порядок стабилен по `(updated_at, id)`. Моки умеют имитировать задержки и ошибки 429/500, а `/healthz` работает без этих воздействий."
   },
   "paths": {
     "/users": {
@@ -12,7 +12,7 @@
         "servers": [
           {
             "url": "http://users-service:8080",
-            "description": "Internal Docker network only; not reachable from the browser."
+            "description": "Адрес доступен только внутри Docker-сети. Браузер на компьютере не разрешает это внутреннее имя сервиса."
           }
         ],
         "parameters": [
@@ -20,7 +20,7 @@
             "name": "page",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Номер страницы, начиная с 1. Значение по умолчанию — 1.",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -32,7 +32,7 @@
             "name": "page_size",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Число записей на странице: от 1 до 1000. Значение по умолчанию указано в схеме параметра.",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -44,7 +44,7 @@
             "name": "updated_since",
             "in": "query",
             "required": false,
-            "description": "Inclusive updated_at cursor; stable order (updated_at,id).",
+            "description": "Получить записи с updated_at не раньше указанной даты, включая границу. RFC3339, например 2026-10-01T00:00:00Z. Сортировка стабильная: updated_at, затем id. Граничные записи могут повториться; analytics применяет их через upsert по ID.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -53,7 +53,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Stable page",
+            "description": "Страница записей со стабильной сортировкой по updated_at, затем id. has_more=true означает, что нужно запросить следующую страницу.",
             "content": {
               "application/json": {
                 "schema": {
@@ -63,10 +63,12 @@
                       "type": "array",
                       "items": {
                         "$ref": "#/components/schemas/SourceUser"
-                      }
+                      },
+                      "description": "Записи текущей страницы."
                     },
                     "has_more": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "description": "true — после этой страницы есть следующая; false — список закончился."
                     }
                   },
                   "required": [
@@ -78,7 +80,7 @@
             }
           },
           "400": {
-            "description": "Invalid parameters",
+            "description": "Некорректные параметры пагинации или дата updated_since.",
             "content": {
               "text/plain": {
                 "schema": {
@@ -88,22 +90,28 @@
             }
           },
           "429": {
-            "description": "Injected rate limit",
+            "description": "Искусственное ограничение частоты запросов мока. Повторите запрос с учётом Retry-After.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
-                }
+                },
+                "description": "Через сколько секунд повторить запрос."
               }
             }
           },
           "500": {
-            "description": "Injected upstream failure"
+            "description": "Искусственная ошибка источника для проверки повторов и сохранения старого снимка."
           },
           "503": {
-            "description": "Database unavailable"
+            "description": "Мок не может обратиться к PostgreSQL."
           }
-        }
+        },
+        "tags": [
+          "Пользователи источника"
+        ],
+        "summary": "Получить страницу пользователей",
+        "description": "Детерминированный мок users-service. Все user_id в подписках и платежах ссылаются на этот список. Настраиваемые задержки и ошибки 429/500 имитируют внешний сервис."
       }
     },
     "/plans": {
@@ -112,7 +120,7 @@
         "servers": [
           {
             "url": "http://subscriptions-service:8080",
-            "description": "Internal Docker network only; not reachable from the browser."
+            "description": "Адрес доступен только внутри Docker-сети. Браузер на компьютере не разрешает это внутреннее имя сервиса."
           }
         ],
         "parameters": [
@@ -120,7 +128,7 @@
             "name": "page",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Номер страницы, начиная с 1. Значение по умолчанию — 1.",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -132,7 +140,7 @@
             "name": "page_size",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Число записей на странице: от 1 до 1000. Значение по умолчанию указано в схеме параметра.",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -144,7 +152,7 @@
             "name": "updated_since",
             "in": "query",
             "required": false,
-            "description": "Inclusive updated_at cursor; stable order (updated_at,id).",
+            "description": "Получить записи с updated_at не раньше указанной даты, включая границу. RFC3339, например 2026-10-01T00:00:00Z. Сортировка стабильная: updated_at, затем id. Граничные записи могут повториться; analytics применяет их через upsert по ID.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -153,7 +161,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Stable page",
+            "description": "Страница записей со стабильной сортировкой по updated_at, затем id. has_more=true означает, что нужно запросить следующую страницу.",
             "content": {
               "application/json": {
                 "schema": {
@@ -163,10 +171,12 @@
                       "type": "array",
                       "items": {
                         "$ref": "#/components/schemas/Plan"
-                      }
+                      },
+                      "description": "Записи текущей страницы."
                     },
                     "has_more": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "description": "true — после этой страницы есть следующая; false — список закончился."
                     }
                   },
                   "required": [
@@ -178,7 +188,7 @@
             }
           },
           "400": {
-            "description": "Invalid parameters",
+            "description": "Некорректные параметры пагинации или дата updated_since.",
             "content": {
               "text/plain": {
                 "schema": {
@@ -188,22 +198,28 @@
             }
           },
           "429": {
-            "description": "Injected rate limit",
+            "description": "Искусственное ограничение частоты запросов мока. Повторите запрос с учётом Retry-After.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
-                }
+                },
+                "description": "Через сколько секунд повторить запрос."
               }
             }
           },
           "500": {
-            "description": "Injected upstream failure"
+            "description": "Искусственная ошибка источника для проверки повторов и сохранения старого снимка."
           },
           "503": {
-            "description": "Database unavailable"
+            "description": "Мок не может обратиться к PostgreSQL."
           }
-        }
+        },
+        "tags": [
+          "Тарифы источника"
+        ],
+        "summary": "Получить страницу тарифов",
+        "description": "Мок subscriptions-service: тарифы на 1, 3, 6 и 12 месяцев. Ответ использует такую же обёртку items/has_more, как остальные списки. Analytics загружает тарифы целиком."
       }
     },
     "/subscriptions": {
@@ -212,7 +228,7 @@
         "servers": [
           {
             "url": "http://subscriptions-service:8080",
-            "description": "Internal Docker network only; not reachable from the browser."
+            "description": "Адрес доступен только внутри Docker-сети. Браузер на компьютере не разрешает это внутреннее имя сервиса."
           }
         ],
         "parameters": [
@@ -220,7 +236,7 @@
             "name": "page",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Номер страницы, начиная с 1. Значение по умолчанию — 1.",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -232,7 +248,7 @@
             "name": "page_size",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Число записей на странице: от 1 до 1000. Значение по умолчанию указано в схеме параметра.",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -244,7 +260,7 @@
             "name": "updated_since",
             "in": "query",
             "required": false,
-            "description": "Inclusive updated_at cursor; stable order (updated_at,id).",
+            "description": "Получить записи с updated_at не раньше указанной даты, включая границу. RFC3339, например 2026-10-01T00:00:00Z. Сортировка стабильная: updated_at, затем id. Граничные записи могут повториться; analytics применяет их через upsert по ID.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -253,7 +269,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Stable page",
+            "description": "Страница записей со стабильной сортировкой по updated_at, затем id. has_more=true означает, что нужно запросить следующую страницу.",
             "content": {
               "application/json": {
                 "schema": {
@@ -263,10 +279,12 @@
                       "type": "array",
                       "items": {
                         "$ref": "#/components/schemas/SourceSubscription"
-                      }
+                      },
+                      "description": "Записи текущей страницы."
                     },
                     "has_more": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "description": "true — после этой страницы есть следующая; false — список закончился."
                     }
                   },
                   "required": [
@@ -278,7 +296,7 @@
             }
           },
           "400": {
-            "description": "Invalid parameters",
+            "description": "Некорректные параметры пагинации или дата updated_since.",
             "content": {
               "text/plain": {
                 "schema": {
@@ -288,22 +306,28 @@
             }
           },
           "429": {
-            "description": "Injected rate limit",
+            "description": "Искусственное ограничение частоты запросов мока. Повторите запрос с учётом Retry-After.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
-                }
+                },
+                "description": "Через сколько секунд повторить запрос."
               }
             }
           },
           "500": {
-            "description": "Injected upstream failure"
+            "description": "Искусственная ошибка источника для проверки повторов и сохранения старого снимка."
           },
           "503": {
-            "description": "Database unavailable"
+            "description": "Мок не может обратиться к PostgreSQL."
           }
-        }
+        },
+        "tags": [
+          "Подписки источника"
+        ],
+        "summary": "Получить страницу подписок",
+        "description": "Мок subscriptions-service. Подписки связаны с существующими пользователями и тарифами. Отмена не означает возврат денег; факт оплаты проверяется по платёжному журналу."
       }
     },
     "/payments": {
@@ -312,7 +336,7 @@
         "servers": [
           {
             "url": "http://payments-service:8080",
-            "description": "Internal Docker network only; not reachable from the browser."
+            "description": "Адрес доступен только внутри Docker-сети. Браузер на компьютере не разрешает это внутреннее имя сервиса."
           }
         ],
         "parameters": [
@@ -320,7 +344,7 @@
             "name": "page",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Номер страницы, начиная с 1. Значение по умолчанию — 1.",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -332,7 +356,7 @@
             "name": "page_size",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Число записей на странице: от 1 до 1000. Значение по умолчанию указано в схеме параметра.",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -344,7 +368,7 @@
             "name": "updated_since",
             "in": "query",
             "required": false,
-            "description": "Inclusive updated_at cursor; stable order (updated_at,id).",
+            "description": "Получить записи с updated_at не раньше указанной даты, включая границу. RFC3339, например 2026-10-01T00:00:00Z. Сортировка стабильная: updated_at, затем id. Граничные записи могут повториться; analytics применяет их через upsert по ID.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -353,7 +377,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Stable page",
+            "description": "Страница записей со стабильной сортировкой по updated_at, затем id. has_more=true означает, что нужно запросить следующую страницу.",
             "content": {
               "application/json": {
                 "schema": {
@@ -363,10 +387,12 @@
                       "type": "array",
                       "items": {
                         "$ref": "#/components/schemas/SourcePayment"
-                      }
+                      },
+                      "description": "Записи текущей страницы."
                     },
                     "has_more": {
-                      "type": "boolean"
+                      "type": "boolean",
+                      "description": "true — после этой страницы есть следующая; false — список закончился."
                     }
                   },
                   "required": [
@@ -378,7 +404,7 @@
             }
           },
           "400": {
-            "description": "Invalid parameters",
+            "description": "Некорректные параметры пагинации или дата updated_since.",
             "content": {
               "text/plain": {
                 "schema": {
@@ -388,22 +414,28 @@
             }
           },
           "429": {
-            "description": "Injected rate limit",
+            "description": "Искусственное ограничение частоты запросов мока. Повторите запрос с учётом Retry-After.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
-                }
+                },
+                "description": "Через сколько секунд повторить запрос."
               }
             }
           },
           "500": {
-            "description": "Injected upstream failure"
+            "description": "Искусственная ошибка источника для проверки повторов и сохранения старого снимка."
           },
           "503": {
-            "description": "Database unavailable"
+            "description": "Мок не может обратиться к PostgreSQL."
           }
-        }
+        },
+        "tags": [
+          "Платежи источника"
+        ],
+        "summary": "Получить оплаты, неуспешные попытки и возвраты",
+        "description": "Мок payments-service. succeeded — успешная оплата; failed — неуспешная попытка; refunded — отдельный полный возврат с refund_of_payment_id. Исходная успешная оплата сохраняется. Для криптовалюты fx фиксирует историческую оценку в RUB."
       }
     }
   },
@@ -416,26 +448,29 @@
             "type": "string",
             "enum": [
               "RUB"
-            ]
+            ],
+            "description": "Валюта сумм ответа. Метрики аналитики возвращаются в RUB после конвертации исходных оплат."
           },
           "users_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число пользователей в этой группе. Пользователи без успешных оплат также учитываются."
           },
           "total_revenue_minor": {
             "type": "integer",
             "format": "int64",
-            "description": "Net lifetime revenue in kopecks."
+            "description": "Пожизненная выручка после возвратов в копейках RUB. Например 99000 означает 990,00 ₽."
           },
           "mean_ltv_minor": {
             "type": "string",
             "pattern": "^-?\\d+\\.\\d{2}$",
             "example": "656762.90",
-            "description": "Mean in fractional kopecks, rounded to two decimal places."
+            "description": "Средний LTV в копейках, десятичная строка с двумя знаками. Например \"99000.00\" означает 990,00 ₽. Строка сохраняет дробные копейки при усреднении."
           },
           "median_ltv_minor": {
             "type": "string",
-            "example": "499000.00"
+            "example": "499000.00",
+            "description": "Медианный LTV в копейках, десятичная строка с двумя знаками. Для чётного числа пользователей берётся среднее двух центральных значений; нулевые LTV включены."
           }
         },
         "required": [
@@ -444,7 +479,16 @@
           "total_revenue_minor",
           "mean_ltv_minor",
           "median_ltv_minor"
-        ]
+        ],
+        "title": "Показатели LTV",
+        "description": "Пожизненная выручка и распределение LTV. Успешные оплаты учитываются за вычетом полных возвратов; пользователи без оплат участвуют с нулём. Все суммы приведены к RUB.",
+        "example": {
+          "currency": "RUB",
+          "users_count": 3,
+          "total_revenue_minor": 297000,
+          "mean_ltv_minor": "99000.00",
+          "median_ltv_minor": "99000.00"
+        }
       },
       "Summary": {
         "allOf": [
@@ -456,45 +500,54 @@
             "properties": {
               "data_as_of": {
                 "type": "string",
-                "format": "date-time"
+                "format": "date-time",
+                "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
               }
             },
             "required": [
               "data_as_of"
             ]
           }
-        ]
+        ],
+        "title": "Сводка LTV со временем снимка",
+        "description": "Общие показатели выбранной когорты вместе с data_as_of и правилом конвертации."
       },
       "Period": {
         "type": "object",
         "properties": {
           "period": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "description": "Номер завершившегося периода, начиная с 1. Значение 1 означает проверку оплаты второго непрерывного периода подписки."
           },
           "eligible": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Пользователи, непрерывно оплатившие периоды с 1 по N включительно и уже завершившие период N. Знаменатель условной доли."
           },
           "renewed": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Из eligible — пользователи, оплатившие следующий непрерывный период N+1. Повторные попытки одного периода дают максимум одно продление."
           },
           "cumulative_eligible": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Участники исходной тарифной когорты, у которых по времени могли закончиться N периодов, включая ушедших раньше. Знаменатель кумулятивной доли."
           },
           "rate": {
             "type": "number",
             "minimum": 0,
             "maximum": 1,
-            "nullable": true
+            "nullable": true,
+            "description": "Условная доля: renewed / eligible. Число от 0 до 1; 0.6 означает 60%. Если eligible=0, возвращается null."
           },
           "cumulative_rate": {
             "type": "number",
             "minimum": 0,
             "maximum": 1,
-            "nullable": true
+            "nullable": true,
+            "description": "Кумулятивная доля: renewed / cumulative_eligible. Учитывает зрелость исходной когорты; не вычисляется произведением условных долей. При нулевом знаменателе — null."
           }
         },
         "required": [
@@ -504,24 +557,38 @@
           "cumulative_eligible",
           "rate",
           "cumulative_rate"
-        ]
+        ],
+        "title": "Одно продление подписки",
+        "description": "Для периода N проверяется оплата периода N+1. Незавершённые периоды не считаются оттоком. rate и cumulative_rate имеют разные знаменатели; это доли от 0 до 1.",
+        "example": {
+          "period": 1,
+          "eligible": 80,
+          "renewed": 40,
+          "cumulative_eligible": 100,
+          "rate": 0.5,
+          "cumulative_rate": 0.4
+        }
       },
       "Error": {
         "type": "object",
         "properties": {
           "error": {
-            "type": "string"
+            "type": "string",
+            "description": "Машинное сообщение о причине ошибки. Объяснение HTTP-кода приведено в описании ответа операции."
           },
           "data_as_of": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           }
         },
         "required": [
           "error",
           "data_as_of"
-        ]
+        ],
+        "title": "Ошибка запроса",
+        "description": "HTTP-код определяет тип ошибки, error поясняет причину, data_as_of указывает время доступного снимка либо null."
       },
       "Plan": {
         "type": "object",
@@ -533,10 +600,12 @@
               "quarterly",
               "half-year",
               "yearly"
-            ]
+            ],
+            "description": "Код тарифа: monthly — месячный, quarterly — квартальный, half-year — полугодовой, yearly — годовой."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Отображаемое название тарифа."
           },
           "period_months": {
             "type": "integer",
@@ -545,17 +614,20 @@
               3,
               6,
               12
-            ]
+            ],
+            "description": "Длительность оплаченного периода тарифа в календарных месяцах: 1, 3, 6 или 12."
           },
           "price": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Цена одного периода тарифа в копейках RUB: 99000 означает 990,00 ₽."
           },
           "currency": {
             "type": "string",
             "enum": [
               "RUB"
-            ]
+            ],
+            "description": "Валюта сумм ответа. Метрики аналитики возвращаются в RUB после конвертации исходных оплат."
           }
         },
         "required": [
@@ -564,7 +636,16 @@
           "period_months",
           "price",
           "currency"
-        ]
+        ],
+        "title": "Тариф подписки",
+        "description": "Справочник четырёх тарифов с длительностью в календарных месяцах и ценой в копейках RUB.",
+        "example": {
+          "id": "monthly",
+          "name": "Месячный",
+          "period_months": 1,
+          "price": 99000,
+          "currency": "RUB"
+        }
       },
       "Retention": {
         "type": "object",
@@ -576,21 +657,25 @@
               "quarterly",
               "half-year",
               "yearly"
-            ]
+            ],
+            "description": "Код тарифа: monthly — месячный, quarterly — квартальный, half-year — полугодовой, yearly — годовой."
           },
           "data_as_of": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           },
           "cohort_size": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число уникальных участников тарифной когорты до исключения незрелых периодов. Поэтому может отличаться от eligible и cumulative_eligible."
           },
           "periods": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Period"
-            }
+            },
+            "description": "Массив продлений по порядковому номеру периода. Ненаблюдаемые периоды имеют нулевые счётчики и null вместо долей."
           }
         },
         "required": [
@@ -598,7 +683,9 @@
           "data_as_of",
           "cohort_size",
           "periods"
-        ]
+        ],
+        "title": "Продления выбранного тарифа",
+        "description": "Первая цепочка пользователя на тарифе учитывается один раз. Переход на другой тариф завершает прежнюю цепочку. Возвращённая оплата не подтверждает оплаченный период, но участник сохраняется в исходной когорте."
       },
       "Status": {
         "type": "object",
@@ -606,29 +693,35 @@
           "snapshot_id": {
             "type": "integer",
             "format": "int64",
-            "nullable": true
+            "nullable": true,
+            "description": "Версия опубликованного снимка. null до первой успешной загрузки и в режиме preview."
           },
           "data_as_of": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           },
           "last_success_at": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Время последней успешной синхронизации; null, если успешных опросов ещё не было."
           },
           "next_sync_at": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Время следующего запланированного опроса источников."
           },
           "last_error": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "Последняя ошибка синхронизации. Успешный цикл очищает ошибку и возвращает null."
           },
           "sync_in_progress": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "true — сейчас выполняется фоновая синхронизация. Параллельный цикл не запускается."
           }
         },
         "required": [
@@ -638,7 +731,9 @@
           "next_sync_at",
           "last_error",
           "sync_in_progress"
-        ]
+        ],
+        "title": "Состояние синхронизации",
+        "description": "Оперативное состояние фонового опроса. При ошибке текущий снимок и курсор сохраняются. Следующий успешный цикл очищает last_error. Ответ не кешируется."
       },
       "Health": {
         "type": "object",
@@ -647,66 +742,81 @@
             "type": "string",
             "enum": [
               "ok"
-            ]
+            ],
+            "description": "ok — подключение к PostgreSQL и проверка метаданных прошли. Наличие первого снимка проверяется отдельно."
           },
           "data_as_of": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           }
         },
         "required": [
           "status",
           "data_as_of"
-        ]
+        ],
+        "title": "Проверка работоспособности",
+        "description": "Проверяет подключение к PostgreSQL, а в analytics также доступность метаданных. status=ok не гарантирует, что первый снимок уже построен."
       },
       "PreviewRequest": {
         "type": "object",
         "properties": {
           "seed": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Целочисленный seed генератора. Вместе с размером, глубиной истории и временем среза воспроизводит те же данные и fingerprint."
           },
           "users_count": {
             "type": "integer",
             "minimum": 10000,
             "maximum": 100000,
-            "default": 31419
+            "default": 31419,
+            "description": "Размер всего набора пользователей. Для генерации допустимо от 10000 до 100000."
           },
           "history_months": {
             "type": "integer",
             "minimum": 18,
             "maximum": 24,
-            "default": 24
+            "default": 24,
+            "description": "Глубина истории в месяцах. Для генерации допустимо от 18 до 24."
           },
           "data_as_of": {
             "type": "string",
             "format": "date-time",
-            "example": "2026-11-01T00:00:00Z"
+            "example": "2026-11-01T00:00:00Z",
+            "description": "Фиксированное время среза RFC3339: от 2000-01-01T00:00:00Z до текущего времени включительно. Будущая дата отклоняется."
           }
-        }
+        },
+        "title": "Параметры тестового набора",
+        "description": "Один JSON-объект размером не более 4096 байт; неизвестные поля запрещены. Неуказанные поля сохраняют значения по умолчанию: seed=42, users_count=31419, history_months=24, data_as_of=2026-11-01T00:00:00Z."
       },
       "SourceUser": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Идентификатор записи в источнике; для пользователей, подписок и платежей это UUID."
           },
           "telegram_id": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Уникальный положительный Telegram ID, int64. Не является UUID."
           },
           "created_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Время создания записи в UTC, формат RFC3339."
           },
           "utm_link": {
-            "type": "string"
+            "type": "string",
+            "description": "Источник привлечения пользователя. В агрегатах отсутствие UTM нормализуется в зарезервированное значение unknown («Без UTM»)."
           },
           "updated_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Время последнего изменения записи. Используется для инкрементальной загрузки через updated_since."
           }
         },
         "required": [
@@ -715,18 +825,29 @@
           "created_at",
           "utm_link",
           "updated_at"
-        ]
+        ],
+        "title": "Пользователь источника",
+        "description": "UUID пользователя, уникальный положительный Telegram ID, даты создания/изменения и UTM-источник.",
+        "example": {
+          "id": "d50f773d-3c19-4093-a385-c467cc8b4688",
+          "telegram_id": 1000000001,
+          "created_at": "2025-10-01T00:00:00Z",
+          "utm_link": "campaign-0",
+          "updated_at": "2025-10-01T00:00:00Z"
+        }
       },
       "SourceSubscription": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Идентификатор записи в источнике; для пользователей, подписок и платежей это UUID."
           },
           "user_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "UUID пользователя из users-service. Не путать с числовым telegram_id."
           },
           "plan_id": {
             "type": "string",
@@ -735,7 +856,8 @@
               "quarterly",
               "half-year",
               "yearly"
-            ]
+            ],
+            "description": "Код тарифа: monthly — месячный, quarterly — квартальный, half-year — полугодовой, yearly — годовой."
           },
           "status": {
             "type": "string",
@@ -743,24 +865,29 @@
               "active",
               "canceled",
               "expired"
-            ]
+            ],
+            "description": "active — активная подписка; canceled — отменённая; expired — истёкшая. Продления подтверждаются оплатами."
           },
           "started_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Время начала подписки. Вместе с id определяет порядок подписок пользователя."
           },
           "current_period_end": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Конец текущего периода подписки. Сам по себе не доказывает наличие оплаты."
           },
           "canceled_at": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Время отмены подписки; null, если отмены нет. Отмена сама по себе не является возвратом денег."
           },
           "updated_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Время последнего изменения записи. Используется для инкрементальной загрузки через updated_since."
           }
         },
         "required": [
@@ -772,27 +899,42 @@
           "current_period_end",
           "canceled_at",
           "updated_at"
-        ]
+        ],
+        "title": "Подписка источника",
+        "description": "Ссылка на существующего пользователя и тариф. Статусы: active — активна, canceled — отменена, expired — истекла. Для расчёта продлений используются оплаты, а не один только статус подписки.",
+        "example": {
+          "id": "ee4db1c8-e1d6-4304-af8d-02ee5fc62fae",
+          "user_id": "d50f773d-3c19-4093-a385-c467cc8b4688",
+          "plan_id": "monthly",
+          "status": "expired",
+          "started_at": "2025-11-01T00:00:00Z",
+          "current_period_end": "2025-12-01T00:00:00Z",
+          "canceled_at": null,
+          "updated_at": "2025-12-01T00:00:00Z"
+        }
       },
       "SourcePayment": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Идентификатор записи в источнике; для пользователей, подписок и платежей это UUID."
           },
           "user_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "UUID пользователя из users-service. Не путать с числовым telegram_id."
           },
           "subscription_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "UUID подписки, к которой относится попытка оплаты или возврат."
           },
           "amount": {
             "type": "integer",
             "format": "int64",
-            "description": "Native atomic units: RUB=2 decimals, BTC=8, canonical USDT=6. Positive int64. Not always RUB kopecks."
+            "description": "Положительная сумма int64 в минимальных единицах исходной валюты: RUB — копейки (2 знака), BTC — сатоши (8), USDT — 6 знаков. Например 100000000 для BTC означает 1 BTC, а не рубли."
           },
           "currency": {
             "type": "string",
@@ -800,7 +942,8 @@
               "RUB",
               "BTC",
               "USDT"
-            ]
+            ],
+            "description": "Исходная валюта платёжной записи: RUB, BTC или USDT. amount хранится в её собственных минимальных единицах."
           },
           "status": {
             "type": "string",
@@ -808,30 +951,41 @@
               "succeeded",
               "failed",
               "refunded"
-            ]
+            ],
+            "description": "succeeded — успешная оплата; failed — неуспешная попытка; refunded — отдельный полный возврат исходной оплаты."
           },
           "period_start": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Начало периода, за который выполняется платёжная попытка. Повторные попытки сохраняют те же границы периода."
           },
           "period_end": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Конец оплачиваемого периода. Периоды считаются календарными месяцами с сохранением исходного дня и ограничением последним днём месяца."
           },
           "created_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Время создания записи в UTC, формат RFC3339."
           },
           "updated_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Время последнего изменения записи. Используется для инкрементальной загрузки через updated_since."
           },
           "refund_of_payment_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Для refunded — UUID исходного succeeded-платежа. Поддерживается один полный возврат исходной оплаты."
           },
           "fx": {
-            "$ref": "#/components/schemas/ExchangeRate"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ExchangeRate"
+              }
+            ],
+            "description": "Исторический курс исходной оплаты. Для BTC/USDT обязателен, для RUB отсутствует. Возврат использует тот же курс."
           }
         },
         "required": [
@@ -846,7 +1000,20 @@
           "created_at",
           "updated_at"
         ],
-        "description": "Original native amount is preserved. Crypto requires a historical FX quote; RUB uses identity conversion. Full refunds must copy original amount, asset and quote. Quote failure rejects publication. Ledger USDT is normalized to 6 decimals; this service does not receive blockchain transactions."
+        "description": "Запись платёжного журнала: успешная оплата, неуспешная попытка или отдельный полный возврат. amount хранится в исходной валюте. Для BTC/USDT обязателен fx, для RUB fx отсутствует. Возврат сохраняет сумму, валюту и курс исходной оплаты и ссылается на неё через refund_of_payment_id. Некорректная котировка отменяет публикацию нового снимка. USDT использует 6 десятичных знаков; обработки реальных блокчейн-транзакций нет.",
+        "title": "Оплата, попытка или возврат",
+        "example": {
+          "id": "7374ccea-eb38-4292-9477-257e317d01bc",
+          "user_id": "d50f773d-3c19-4093-a385-c467cc8b4688",
+          "subscription_id": "ee4db1c8-e1d6-4304-af8d-02ee5fc62fae",
+          "amount": 99000,
+          "currency": "RUB",
+          "status": "succeeded",
+          "period_start": "2025-11-01T00:00:00Z",
+          "period_end": "2025-12-01T00:00:00Z",
+          "created_at": "2025-11-01T00:00:00Z",
+          "updated_at": "2025-11-01T00:00:00Z"
+        }
       },
       "PlanSummary": {
         "allOf": [
@@ -863,14 +1030,17 @@
                   "quarterly",
                   "half-year",
                   "yearly"
-                ]
+                ],
+                "description": "Код тарифа: monthly — месячный, quarterly — квартальный, half-year — полугодовой, yearly — годовой."
               }
             },
             "required": [
               "plan_id"
             ]
           }
-        ]
+        ],
+        "title": "LTV по первому тарифу",
+        "description": "Вся пожизненная выручка пользователя относится к тарифу его первой подписки, даже после перехода на другой тариф."
       },
       "DashboardPlan": {
         "allOf": [
@@ -881,7 +1051,8 @@
             "type": "object",
             "properties": {
               "name": {
-                "type": "string"
+                "type": "string",
+                "description": "Отображаемое название тарифа."
               },
               "period_months": {
                 "type": "integer",
@@ -890,7 +1061,8 @@
                   3,
                   6,
                   12
-                ]
+                ],
+                "description": "Длительность оплаченного периода тарифа в календарных месяцах: 1, 3, 6 или 12."
               }
             },
             "required": [
@@ -898,45 +1070,55 @@
               "period_months"
             ]
           }
-        ]
+        ],
+        "title": "Тариф и его показатели",
+        "description": "Группа пользователей по первому тарифу с названием, длительностью и пожизненной выручкой."
       },
       "ByPlan": {
         "type": "object",
         "properties": {
           "data_as_of": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           },
           "plans": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PlanSummary"
-            }
+            },
+            "description": "Данные по тарифам. Смысл элементов определяется моделью ответа: справочник тарифов или группы LTV."
           }
         },
         "required": [
           "data_as_of",
           "plans"
-        ]
+        ],
+        "title": "Сравнение тарифных когорт",
+        "description": "Агрегаты LTV по первому тарифу каждого пользователя."
       },
       "Plans": {
         "type": "object",
         "properties": {
           "data_as_of": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           },
           "plans": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Plan"
-            }
+            },
+            "description": "Данные по тарифам. Смысл элементов определяется моделью ответа: справочник тарифов или группы LTV."
           }
         },
         "required": [
           "data_as_of",
           "plans"
-        ]
+        ],
+        "title": "Справочник тарифов снимка",
+        "description": "Тарифы читаются из опубликованного снимка. Запрос не обращается к subscriptions-service."
       },
       "RetentionReport": {
         "type": "object",
@@ -948,24 +1130,29 @@
               "quarterly",
               "half-year",
               "yearly"
-            ]
+            ],
+            "description": "Код тарифа: monthly — месячный, quarterly — квартальный, half-year — полугодовой, yearly — годовой."
           },
           "cohort_size": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число уникальных участников тарифной когорты до исключения незрелых периодов. Поэтому может отличаться от eligible и cumulative_eligible."
           },
           "periods": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Period"
-            }
+            },
+            "description": "Массив продлений по порядковому номеру периода. Ненаблюдаемые периоды имеют нулевые счётчики и null вместо долей."
           }
         },
         "required": [
           "plan_id",
           "cohort_size",
           "periods"
-        ]
+        ],
+        "title": "Тарифная кривая продлений",
+        "description": "Продления одной тарифной цепочки внутри общего ответа дашборда."
       },
       "Dataset": {
         "type": "object",
@@ -973,59 +1160,73 @@
           "seed": {
             "type": "integer",
             "format": "int64",
-            "nullable": true
+            "nullable": true,
+            "description": "Целочисленный seed генератора. Вместе с размером, глубиной истории и временем среза воспроизводит те же данные и fingerprint."
           },
           "generator_version": {
-            "type": "string"
+            "type": "string",
+            "description": "Версия генератора или миграции набора. Нужна для проверки происхождения данных."
           },
           "history_months": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Глубина истории в месяцах. Для генерации допустимо от 18 до 24."
           },
           "dataset_as_of": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Фиксированная верхняя граница истории набора. Это параметр генерации, а не время последнего опроса источников."
           },
           "users_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Размер всего набора пользователей. Для генерации допустимо от 10000 до 100000."
           },
           "subscriptions_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число подписок во всём наборе данных."
           },
           "payments_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число записей платёжного журнала во всём наборе: успешные оплаты, неуспешные попытки и возвраты."
           },
           "succeeded_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число записей succeeded в исходном наборе, включая впоследствии возвращённые оплаты."
           },
           "failed_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число неуспешных платёжных попыток."
           },
           "refunded_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число отдельных записей полного возврата."
           },
           "switches_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число пользователей, имевших подписки более чем на одном тарифе."
           },
           "unpaid_users": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Пользователи без единой записи succeeded. Это не то же самое, что нулевой LTV после возврата."
           },
           "active_periods": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число подписок, у которых started_at раньше времени снимка, а current_period_end позже него. Это временной признак, а не подтверждение оплаты."
           },
           "fingerprint": {
             "type": "string",
-            "pattern": "^[a-f0-9]{64}$"
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "SHA-256 канонического набора данных: 64 шестнадцатеричных символа. Совпадение проверяет воспроизводимость генерации."
           },
           "samples": {
             "type": "object",
@@ -1034,26 +1235,46 @@
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/SourceUser"
-                }
+                },
+                "description": "Исходные пользователи или страница пользовательской выборки — в зависимости от содержащей модели."
               },
               "subscriptions": {
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/SourceSubscription"
-                }
+                },
+                "description": "Образцы исходных подписок."
               },
               "payments": {
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/SourcePayment"
-                }
+                },
+                "description": "Образцы исходных платёжных записей разных статусов."
               }
             },
             "required": [
               "users",
               "subscriptions",
               "payments"
-            ]
+            ],
+            "description": "Небольшая выборка исходных пользователей, подписок и платежей из этого же набора."
+          },
+          "currencies": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Число исходных платёжных записей в каждой валюте, включая попытки и возвраты. Ключи — RUB, BTC, USDT."
+          },
+          "conversion": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConversionPolicy"
+              }
+            ],
+            "description": "Правила приведения исходных валют к RUB и округления."
           }
         },
         "required": [
@@ -1072,33 +1293,41 @@
           "active_periods",
           "fingerprint",
           "samples"
-        ]
+        ],
+        "title": "Паспорт набора данных",
+        "description": "Метаданные всего исходного набора, проверки пограничных случаев и образцы записей. Фильтры когорты не меняют этот паспорт."
       },
       "DashboardUser": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Идентификатор записи в источнике; для пользователей, подписок и платежей это UUID."
           },
           "telegram_id": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Уникальный положительный Telegram ID, int64. Не является UUID."
           },
           "first_subscription_at": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Время самой первой подписки; null для пользователя без подписок."
           },
           "first_plan_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Тариф самой первой подписки. Последующие переходы не меняют исходную тарифную группу LTV. Пустая строка означает отсутствие подписок."
           },
           "ltv_minor": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "LTV пользователя в копейках RUB: успешные оплаты за всю жизнь минус полные возвраты, после конвертации валют."
           },
           "utm_link": {
-            "type": "string"
+            "type": "string",
+            "description": "Источник привлечения пользователя. В агрегатах отсутствие UTM нормализуется в зарезервированное значение unknown («Без UTM»)."
           }
         },
         "required": [
@@ -1108,42 +1337,54 @@
           "first_plan_id",
           "ltv_minor",
           "utm_link"
-        ]
+        ],
+        "title": "Пользователь выбранного сегмента",
+        "description": "UUID, Telegram ID, дата первой подписки, первый тариф, пожизненный LTV и источник."
       },
       "Dashboard": {
         "type": "object",
         "properties": {
           "data_as_of": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           },
           "snapshot_id": {
             "type": "integer",
             "format": "int64",
-            "nullable": true
+            "nullable": true,
+            "description": "Версия опубликованного снимка. null до первой успешной загрузки и в режиме preview."
           },
           "mode": {
             "type": "string",
             "enum": [
               "live",
               "preview"
-            ]
+            ],
+            "description": "live — текущий опубликованный снимок PostgreSQL; preview — отдельный результат генератора без изменения БД."
           },
           "selection": {
             "type": "string",
             "enum": [
               "first_plan",
               "chain"
-            ]
+            ],
+            "description": "Как отобрать пользователей по тарифу: first_plan — по самому первому тарифу; chain — по наличию первой цепочки выбранного тарифа, включая перешедших с другого. На /api/dashboard для chain нужен конкретный plan_id. Даты в обоих случаях относятся к самой первой подписке вообще."
           },
           "summary": {
-            "$ref": "#/components/schemas/SummaryValues"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SummaryValues"
+              }
+            ],
+            "description": "Общие показатели выбранной когорты. Поиск и страница списка пользователей на них не влияют."
           },
           "plans": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DashboardPlan"
-            }
+            },
+            "description": "Данные по тарифам. Смысл элементов определяется моделью ответа: справочник тарифов или группы LTV."
           },
           "timeline": {
             "type": "array",
@@ -1157,7 +1398,8 @@
                   "properties": {
                     "month": {
                       "type": "string",
-                      "example": "2026-01"
+                      "example": "2026-01",
+                      "description": "Месяц самой первой подписки в формате YYYY-MM, например 2026-01."
                     }
                   },
                   "required": [
@@ -1165,13 +1407,15 @@
                   ]
                 }
               ]
-            }
+            },
+            "description": "LTV и выручка когорт по месяцу первой подписки. Это пожизненная выручка пользователей когорты, а не поступления денег за месяц."
           },
           "retention": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RetentionReport"
-            }
+            },
+            "description": "Условные и кумулятивные продления по тарифным цепочкам, включая переходы на тариф."
           },
           "cohorts": {
             "type": "array",
@@ -1179,17 +1423,20 @@
               "type": "object",
               "properties": {
                 "month": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Месяц самой первой подписки в формате YYYY-MM, например 2026-01."
                 },
                 "users_count": {
                   "type": "integer",
-                  "minimum": 0
+                  "minimum": 0,
+                  "description": "Число пользователей в этой группе. Пользователи без успешных оплат также учитываются."
                 },
                 "periods": {
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/Period"
-                  }
+                  },
+                  "description": "Массив продлений по порядковому номеру периода. Ненаблюдаемые периоды имеют нулевые счётчики и null вместо долей."
                 }
               },
               "required": [
@@ -1197,7 +1444,8 @@
                 "users_count",
                 "periods"
               ]
-            }
+            },
+            "description": "Матрица продлений по месяцу первой подписки для выбранного тарифа; при all используется месячный тариф."
           },
           "distribution": {
             "type": "array",
@@ -1205,20 +1453,24 @@
               "type": "object",
               "properties": {
                 "label": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Подпись диапазона LTV в рублях."
                 },
                 "min_minor": {
                   "type": "integer",
-                  "format": "int64"
+                  "format": "int64",
+                  "description": "Нижняя граница диапазона LTV в копейках, включительно."
                 },
                 "max_minor": {
                   "type": "integer",
                   "format": "int64",
-                  "nullable": true
+                  "nullable": true,
+                  "description": "Верхняя граница диапазона LTV в копейках, не включительно. null означает отсутствие верхней границы."
                 },
                 "users_count": {
                   "type": "integer",
-                  "minimum": 0
+                  "minimum": 0,
+                  "description": "Число пользователей в этой группе. Пользователи без успешных оплат также учитываются."
                 }
               },
               "required": [
@@ -1227,7 +1479,8 @@
                 "max_minor",
                 "users_count"
               ]
-            }
+            },
+            "description": "Распределение пользователей выбранной когорты по диапазонам LTV."
           },
           "users": {
             "type": "object",
@@ -1236,21 +1489,26 @@
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/DashboardUser"
-                }
+                },
+                "description": "Записи текущей страницы."
               },
               "page": {
-                "type": "integer"
+                "type": "integer",
+                "description": "Номер текущей страницы, начиная с 1."
               },
               "page_size": {
-                "type": "integer"
+                "type": "integer",
+                "description": "Размер страницы. Список пользователей дашборда возвращает по 20 записей."
               },
               "total": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "Общее число записей выборки до применения пагинации."
               },
               "pages": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "Общее число страниц пользовательской выборки."
               }
             },
             "required": [
@@ -1259,10 +1517,16 @@
               "page_size",
               "total",
               "pages"
-            ]
+            ],
+            "description": "Исходные пользователи или страница пользовательской выборки — в зависимости от содержащей модели."
           },
           "dataset": {
-            "$ref": "#/components/schemas/Dataset"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Dataset"
+              }
+            ],
+            "description": "Паспорт всего набора данных. Его размеры не уменьшаются при применении фильтров дашборда."
           }
         },
         "required": [
@@ -1278,7 +1542,9 @@
           "distribution",
           "users",
           "dataset"
-        ]
+        ],
+        "title": "Данные всех разделов аналитики",
+        "description": "Готовые показатели, графики, когорты и пользовательская выборка одного снимка. Поиск и сортировка применяются к users; dataset описывает весь набор."
       },
       "ExchangeRate": {
         "type": "object",
@@ -1290,22 +1556,31 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "Уникальный идентификатор зафиксированной котировки; это строка, а не UUID пользователя."
           },
           "rub_per_unit": {
             "type": "string",
             "pattern": "^[0-9]{1,12}(\\.[0-9]{1,12})?$",
-            "description": "Exact positive RUB major units per one native asset unit, frozen at payment time."
+            "description": "Точный положительный курс: рублей за одну целую единицу валюты, например за 1 BTC. Десятичная строка фиксируется на момент платежа."
           },
           "as_of": {
             "type": "string",
             "format": "date-time",
-            "description": "Must not be later than payment.created_at. Full refunds copy the original quote."
+            "description": "Время котировки не позже created_at оплаты. Возврат копирует курс и время котировки исходного платежа."
           },
           "source": {
             "type": "string",
-            "description": "Mock fixture: deterministic-demo-fixture-v1. Synthetic, not a market feed."
+            "description": "Источник учебной котировки: deterministic-demo-fixture-v1. Курсы синтетические и воспроизводимые; это не биржевые котировки."
           }
+        },
+        "title": "Исторический курс оплаты",
+        "description": "Неизменяемая учебная котировка. Применяется точная рациональная арифметика без денежных float64. Возврат использует ту же котировку, что и исходная оплата.",
+        "example": {
+          "id": "demo-fx-v1/2026-01/BTC",
+          "rub_per_unit": "5000000.00",
+          "as_of": "2026-01-01T00:00:00Z",
+          "source": "deterministic-demo-fixture-v1"
         }
       },
       "ConversionPolicy": {
@@ -1320,16 +1595,44 @@
             "type": "string",
             "enum": [
               "RUB"
-            ]
+            ],
+            "description": "Валюта сумм ответа. Метрики аналитики возвращаются в RUB после конвертации исходных оплат."
           },
           "method": {
-            "type": "string"
+            "type": "string",
+            "description": "Правило конвертации: historical_payment_rate; full_refund_at_original_rate — исторический курс оплаты, полный возврат по исходному курсу."
           },
           "rounding": {
-            "type": "string"
+            "type": "string",
+            "description": "half_away_from_zero_per_payment — точная конвертация и округление каждой оплаты до копейки, половина округляется от нуля."
           }
+        },
+        "title": "Правила конвертации в рубли",
+        "description": "Исторический курс каждой оплаты, возврат по исходному курсу, округление каждой операции до копейки половиной от нуля.",
+        "example": {
+          "currency": "RUB",
+          "method": "historical_payment_rate; full_refund_at_original_rate",
+          "rounding": "half_away_from_zero_per_payment"
         }
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "name": "Пользователи источника",
+      "description": "Детерминированный мок users-service. Все user_id в подписках и платежах ссылаются на этот список. Настраиваемые задержки и ошибки 429/500 имитируют внешний сервис."
+    },
+    {
+      "name": "Тарифы источника",
+      "description": "Мок subscriptions-service: тарифы на 1, 3, 6 и 12 месяцев. Ответ использует такую же обёртку items/has_more, как остальные списки. Analytics загружает тарифы целиком."
+    },
+    {
+      "name": "Подписки источника",
+      "description": "Мок subscriptions-service. Подписки связаны с существующими пользователями и тарифами. Отмена не означает возврат денег; факт оплаты проверяется по платёжному журналу."
+    },
+    {
+      "name": "Платежи источника",
+      "description": "Мок payments-service. succeeded — успешная оплата; failed — неуспешная попытка; refunded — отдельный полный возврат с refund_of_payment_id. Исходная успешная оплата сохраняется. Для криптовалюты fx фиксирует историческую оценку в RUB."
+    }
+  ]
 }

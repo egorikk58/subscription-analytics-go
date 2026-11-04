@@ -1,13 +1,14 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "Subscope Subscription Analytics API",
+    "title": "Аналитика подписок — API Subscope",
     "version": "1.1.0",
-    "description": "RUB amounts are int64 minor units. Mean/median are decimal strings in fractional minor units. [from,to) filters the first-ever subscription. Lifetime revenue is not MRR. Rates are ratios in [0,1]; null means no observable denominator. Tools: /docs/, /db/, /grafana/, /prometheus/. Operations require OPS_USERNAME/OPS_PASSWORD. Internal scrape listener is not published. Native RUB/BTC/USDT payments are converted to RUB with exact per-payment historical quotes. Demo quotes are synthetic immutable fixtures; full refunds use the original quote. No external FX network access on reads."
+    "description": "API пожизненной ценности пользователей (LTV), выручки и продлений подписок. Все GET-запросы аналитики читают опубликованный снимок; источники опрашиваются в фоне.\n\n**Начните со сводки:** раскройте `GET /metrics/ltv/summary`, нажмите **Try it out** («Попробовать»), затем **Execute** («Выполнить»). Обязательных параметров нет. Дальше попробуйте продления с `plan_id=monthly`.\n\n**Суммы:** целые значения — копейки RUB: `99000` = 990,00 ₽. Среднее и медиана — строки в копейках с двумя знаками: `\"99000.00\"` = 990,00 ₽. Криптооплаты BTC/USDT приводятся к RUB по сохранённому историческому курсу; котировки моков учебные.\n\n**Фильтры:** `from` включается, `to` не включается. Они отбирают пользователей по самой первой подписке, но учитывают их оплаты за всю жизнь. **Доли:** `0.61` = 61%; `null` = нет зрелых наблюдений. Это не MRR.\n\n**Доступ:** бизнес-метрики открыты. Для `/metrics` и служебных панелей используется логин/пароль `OPS_USERNAME` / `OPS_PASSWORD` из env. Пароль в документацию не включается."
   },
   "servers": [
     {
-      "url": "/"
+      "url": "/",
+      "description": "Текущий сервер приложения. Запросы отправляются на тот же адрес, где открыт Swagger."
     }
   ],
   "paths": {
@@ -15,15 +16,15 @@
       "get": {
         "operationId": "getSummary",
         "tags": [
-          "Analytics"
+          "LTV и выручка"
         ],
-        "summary": "Lifetime value summary",
+        "summary": "Общая выручка, средний и медианный LTV",
         "parameters": [
           {
             "name": "from",
             "in": "query",
             "required": false,
-            "description": "Inclusive date of FIRST subscription in UTC.",
+            "description": "Начало диапазона даты САМОЙ ПЕРВОЙ подписки пользователя, включительно. RFC3339, например 2025-01-01T00:00:00Z. Если не задано — начало истории. Оплаты выбранных пользователей учитываются за всю жизнь.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -33,7 +34,7 @@
             "name": "to",
             "in": "query",
             "required": false,
-            "description": "Exclusive date of FIRST subscription. Lifetime payments remain included.",
+            "description": "Конец диапазона даты САМОЙ ПЕРВОЙ подписки, не включительно. Например 2026-01-01T00:00:00Z вместе с from=2025-01-01T00:00:00Z выбирает когорту 2025 года. Значение должно быть позже from; время нормализуется в UTC.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -45,12 +46,12 @@
             "schema": {
               "type": "string"
             },
-            "description": "ETag from an earlier response; matching validator yields 304 without a body."
+            "description": "ETag из предыдущего ответа к тому же адресу с теми же параметрами. При совпадении сервер вернёт 304 без тела. Для первого запроса оставьте пустым."
           },
           {
             "name": "utm_link",
             "in": "query",
-            "description": "Exact case-sensitive user acquisition UTM after trimming whitespace. Omit for all users. Empty value or unknown selects the unattributed group; literal unknown is reserved. Combines with first-ever subscription date filters.",
+            "description": "Точное значение источника пользователя с учётом регистра, например campaign-0. Пробелы по краям удаляются. Без параметра выбираются все источники; пустое значение или unknown выбирает пользователей без UTM. Совмещается с фильтром первой подписки.",
             "schema": {
               "type": "string",
               "maxLength": 2048
@@ -59,11 +60,19 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Успешный ответ.",
             "content": {
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/Summary"
+                },
+                "example": {
+                  "currency": "RUB",
+                  "users_count": 3,
+                  "total_revenue_minor": 297000,
+                  "mean_ltv_minor": "99000.00",
+                  "median_ltv_minor": "99000.00",
+                  "data_as_of": "2026-11-04T17:00:00Z"
                 }
               }
             },
@@ -72,36 +81,36 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           },
           "400": {
-            "description": "Invalid query/body",
+            "description": "Некорректные параметры запроса или JSON в теле. Подробность указана в поле error.",
             "content": {
               "application/json": {
                 "schema": {
@@ -111,13 +120,13 @@
             }
           },
           "503": {
-            "description": "Snapshot or dependency unavailable",
+            "description": "Снимок ещё не готов или нужное хранилище недоступно. При сбое источника сервис продолжает отдавать прежний опубликованный снимок.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Present before first snapshot; seconds to retry."
+                "description": "До появления первого снимка указывает, через сколько секунд повторить запрос."
               }
             },
             "content": {
@@ -129,56 +138,57 @@
             }
           },
           "304": {
-            "description": "Matching ETag; empty body.",
+            "description": "Версия снимка не изменилась. Ответ 304 не содержит тела; используйте ранее полученные данные.",
             "headers": {
               "ETag": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           }
-        }
+        },
+        "description": "Выбирает пользователей по дате их самой первой подписки и UTM, затем учитывает их оплаты за всю жизнь. Пользователи без оплат входят с нулём. Для первого запроса оставьте необязательные фильтры пустыми."
       }
     },
     "/metrics/ltv/by-plan": {
       "get": {
         "operationId": "getByPlan",
         "tags": [
-          "Analytics"
+          "LTV и выручка"
         ],
-        "summary": "LTV grouped by FIRST tariff",
+        "summary": "Сравнить LTV по первым тарифам",
         "parameters": [
           {
             "name": "from",
             "in": "query",
             "required": false,
-            "description": "Inclusive date of FIRST subscription in UTC.",
+            "description": "Начало диапазона даты САМОЙ ПЕРВОЙ подписки пользователя, включительно. RFC3339, например 2025-01-01T00:00:00Z. Если не задано — начало истории. Оплаты выбранных пользователей учитываются за всю жизнь.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -188,7 +198,7 @@
             "name": "to",
             "in": "query",
             "required": false,
-            "description": "Exclusive date of FIRST subscription. Lifetime payments remain included.",
+            "description": "Конец диапазона даты САМОЙ ПЕРВОЙ подписки, не включительно. Например 2026-01-01T00:00:00Z вместе с from=2025-01-01T00:00:00Z выбирает когорту 2025 года. Значение должно быть позже from; время нормализуется в UTC.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -200,12 +210,12 @@
             "schema": {
               "type": "string"
             },
-            "description": "ETag from an earlier response; matching validator yields 304 without a body."
+            "description": "ETag из предыдущего ответа к тому же адресу с теми же параметрами. При совпадении сервер вернёт 304 без тела. Для первого запроса оставьте пустым."
           },
           {
             "name": "utm_link",
             "in": "query",
-            "description": "Exact case-sensitive user acquisition UTM after trimming whitespace. Omit for all users. Empty value or unknown selects the unattributed group; literal unknown is reserved. Combines with first-ever subscription date filters.",
+            "description": "Точное значение источника пользователя с учётом регистра, например campaign-0. Пробелы по краям удаляются. Без параметра выбираются все источники; пустое значение или unknown выбирает пользователей без UTM. Совмещается с фильтром первой подписки.",
             "schema": {
               "type": "string",
               "maxLength": 2048
@@ -214,7 +224,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Успешный ответ.",
             "content": {
               "application/json": {
                 "schema": {
@@ -227,36 +237,36 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           },
           "400": {
-            "description": "Invalid query/body",
+            "description": "Некорректные параметры запроса или JSON в теле. Подробность указана в поле error.",
             "content": {
               "application/json": {
                 "schema": {
@@ -266,13 +276,13 @@
             }
           },
           "503": {
-            "description": "Snapshot or dependency unavailable",
+            "description": "Снимок ещё не готов или нужное хранилище недоступно. При сбое источника сервис продолжает отдавать прежний опубликованный снимок.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Present before first snapshot; seconds to retry."
+                "description": "До появления первого снимка указывает, через сколько секунд повторить запрос."
               }
             },
             "content": {
@@ -284,56 +294,57 @@
             }
           },
           "304": {
-            "description": "Matching ETag; empty body.",
+            "description": "Версия снимка не изменилась. Ответ 304 не содержит тела; используйте ранее полученные данные.",
             "headers": {
               "ETag": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           }
-        }
+        },
+        "description": "Если пользователь перешёл с месячного тарифа на годовой, обе оплаты остаются в исходной месячной группе. Пользователь без подписок участвует в общей сводке, но не попадает в тарифную группу."
       }
     },
     "/metrics/retention": {
       "get": {
         "operationId": "getRetention",
         "tags": [
-          "Analytics"
+          "Продления"
         ],
-        "summary": "Conditional and mature-original-cohort retention",
+        "summary": "Получить условные и кумулятивные продления",
         "parameters": [
           {
             "name": "from",
             "in": "query",
             "required": false,
-            "description": "Inclusive date of FIRST subscription in UTC.",
+            "description": "Начало диапазона даты САМОЙ ПЕРВОЙ подписки пользователя, включительно. RFC3339, например 2025-01-01T00:00:00Z. Если не задано — начало истории. Оплаты выбранных пользователей учитываются за всю жизнь.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -343,7 +354,7 @@
             "name": "to",
             "in": "query",
             "required": false,
-            "description": "Exclusive date of FIRST subscription. Lifetime payments remain included.",
+            "description": "Конец диапазона даты САМОЙ ПЕРВОЙ подписки, не включительно. Например 2026-01-01T00:00:00Z вместе с from=2025-01-01T00:00:00Z выбирает когорту 2025 года. Значение должно быть позже from; время нормализуется в UTC.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -353,7 +364,7 @@
             "name": "plan_id",
             "in": "query",
             "required": true,
-            "description": "Tariff chain, including migrations.",
+            "description": "Тариф: monthly — 1 месяц, quarterly — 3, half-year — 6, yearly — 12. Значение all выбирает все тарифы там, где оно есть в списке. Здесь параметр обязателен; учитываются цепочки тарифа, включая перешедших пользователей.",
             "schema": {
               "type": "string",
               "enum": [
@@ -362,13 +373,14 @@
                 "half-year",
                 "yearly"
               ]
-            }
+            },
+            "example": "monthly"
           },
           {
             "name": "max_periods",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Сколько продлений показать: от 1 до 24, по умолчанию 12. Это число расчётных периодов тарифа, а не обязательно месяцев: период годового тарифа равен 12 месяцам.",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -382,12 +394,12 @@
             "schema": {
               "type": "string"
             },
-            "description": "ETag from an earlier response; matching validator yields 304 without a body."
+            "description": "ETag из предыдущего ответа к тому же адресу с теми же параметрами. При совпадении сервер вернёт 304 без тела. Для первого запроса оставьте пустым."
           },
           {
             "name": "utm_link",
             "in": "query",
-            "description": "Exact case-sensitive user acquisition UTM after trimming whitespace. Omit for all users. Empty value or unknown selects the unattributed group; literal unknown is reserved. Combines with first-ever subscription date filters.",
+            "description": "Точное значение источника пользователя с учётом регистра, например campaign-0. Пробелы по краям удаляются. Без параметра выбираются все источники; пустое значение или unknown выбирает пользователей без UTM. Совмещается с фильтром первой подписки.",
             "schema": {
               "type": "string",
               "maxLength": 2048
@@ -396,7 +408,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Успешный ответ.",
             "content": {
               "application/json": {
                 "schema": {
@@ -409,36 +421,36 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           },
           "400": {
-            "description": "Invalid query/body",
+            "description": "Некорректные параметры запроса или JSON в теле. Подробность указана в поле error.",
             "content": {
               "application/json": {
                 "schema": {
@@ -448,13 +460,13 @@
             }
           },
           "503": {
-            "description": "Snapshot or dependency unavailable",
+            "description": "Снимок ещё не готов или нужное хранилище недоступно. При сбое источника сервис продолжает отдавать прежний опубликованный снимок.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Present before first snapshot; seconds to retry."
+                "description": "До появления первого снимка указывает, через сколько секунд повторить запрос."
               }
             },
             "content": {
@@ -466,50 +478,51 @@
             }
           },
           "304": {
-            "description": "Matching ETag; empty body.",
+            "description": "Версия снимка не изменилась. Ответ 304 не содержит тела; используйте ранее полученные данные.",
             "headers": {
               "ETag": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           }
-        }
+        },
+        "description": "Выберите plan_id, например monthly, и число периодов max_periods. Для периода N: rate=renewed/eligible, cumulative_rate=renewed/cumulative_eligible. Число 0.61 означает 61%. null означает отсутствие зрелого знаменателя. Смена тарифа завершает прежнюю цепочку; первая цепочка на новом тарифе учитывается отдельно. from/to всегда относятся к самой первой подписке вообще."
       }
     },
     "/api/plans": {
       "get": {
         "operationId": "getPlans",
         "tags": [
-          "Analytics"
+          "Дашборд"
         ],
-        "summary": "Tariffs from published snapshot",
+        "summary": "Получить список четырёх тарифов",
         "parameters": [
           {
             "name": "If-None-Match",
@@ -517,12 +530,12 @@
             "schema": {
               "type": "string"
             },
-            "description": "ETag from an earlier response; matching validator yields 304 without a body."
+            "description": "ETag из предыдущего ответа к тому же адресу с теми же параметрами. При совпадении сервер вернёт 304 без тела. Для первого запроса оставьте пустым."
           }
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Успешный ответ.",
             "content": {
               "application/json": {
                 "schema": {
@@ -535,36 +548,36 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           },
           "400": {
-            "description": "Invalid query/body",
+            "description": "Некорректные параметры запроса или JSON в теле. Подробность указана в поле error.",
             "content": {
               "application/json": {
                 "schema": {
@@ -574,13 +587,13 @@
             }
           },
           "503": {
-            "description": "Snapshot or dependency unavailable",
+            "description": "Снимок ещё не готов или нужное хранилище недоступно. При сбое источника сервис продолжает отдавать прежний опубликованный снимок.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Present before first snapshot; seconds to retry."
+                "description": "До появления первого снимка указывает, через сколько секунд повторить запрос."
               }
             },
             "content": {
@@ -592,56 +605,57 @@
             }
           },
           "304": {
-            "description": "Matching ETag; empty body.",
+            "description": "Версия снимка не изменилась. Ответ 304 не содержит тела; используйте ранее полученные данные.",
             "headers": {
               "ETag": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           }
-        }
+        },
+        "description": "Справочник тарифов из текущего опубликованного снимка: коды, названия, длительности и цены. Подходит для заполнения фильтра тарифов."
       }
     },
     "/api/dashboard": {
       "get": {
         "operationId": "getDashboard",
         "tags": [
-          "Analytics"
+          "Дашборд"
         ],
-        "summary": "Prepared dashboard, cohorts and paginated user selection",
+        "summary": "Получить сводку, графики и пользователей",
         "parameters": [
           {
             "name": "from",
             "in": "query",
             "required": false,
-            "description": "Inclusive date of FIRST subscription in UTC.",
+            "description": "Начало диапазона даты САМОЙ ПЕРВОЙ подписки пользователя, включительно. RFC3339, например 2025-01-01T00:00:00Z. Если не задано — начало истории. Оплаты выбранных пользователей учитываются за всю жизнь.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -651,7 +665,7 @@
             "name": "to",
             "in": "query",
             "required": false,
-            "description": "Exclusive date of FIRST subscription. Lifetime payments remain included.",
+            "description": "Конец диапазона даты САМОЙ ПЕРВОЙ подписки, не включительно. Например 2026-01-01T00:00:00Z вместе с from=2025-01-01T00:00:00Z выбирает когорту 2025 года. Значение должно быть позже from; время нормализуется в UTC.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -661,7 +675,7 @@
             "name": "plan_id",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Тариф: monthly — 1 месяц, quarterly — 3, half-year — 6, yearly — 12. Значение all выбирает все тарифы там, где оно есть в списке.",
             "schema": {
               "type": "string",
               "enum": [
@@ -678,7 +692,7 @@
             "name": "selection",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Как отобрать пользователей по тарифу: first_plan — по самому первому тарифу; chain — по наличию первой цепочки выбранного тарифа, включая перешедших с другого. На /api/dashboard для chain нужен конкретный plan_id. Даты в обоих случаях относятся к самой первой подписке вообще.",
             "schema": {
               "type": "string",
               "enum": [
@@ -692,7 +706,7 @@
             "name": "page",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Номер страницы, начиная с 1. Значение по умолчанию — 1.",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -704,7 +718,7 @@
             "name": "search",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Поиск подстроки в UUID или Telegram ID пользователя, максимум 100 символов. Влияет только на список users, а не на сводку и графики дашборда.",
             "schema": {
               "type": "string",
               "maxLength": 100
@@ -714,7 +728,7 @@
             "name": "sort",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Порядок пользователей: ltv_desc — сначала наибольший LTV; ltv_asc — сначала наименьший; joined_desc — сначала новые первые подписки. При равенстве используется UUID. Не меняет сводные метрики.",
             "schema": {
               "type": "string",
               "enum": [
@@ -731,12 +745,12 @@
             "schema": {
               "type": "string"
             },
-            "description": "ETag from an earlier response; matching validator yields 304 without a body."
+            "description": "ETag из предыдущего ответа к тому же адресу с теми же параметрами. При совпадении сервер вернёт 304 без тела. Для первого запроса оставьте пустым."
           },
           {
             "name": "utm_link",
             "in": "query",
-            "description": "Exact case-sensitive user acquisition UTM after trimming whitespace. Omit for all users. Empty value or unknown selects the unattributed group; literal unknown is reserved. Combines with first-ever subscription date filters.",
+            "description": "Точное значение источника пользователя с учётом регистра, например campaign-0. Пробелы по краям удаляются. Без параметра выбираются все источники; пустое значение или unknown выбирает пользователей без UTM. Совмещается с фильтром первой подписки.",
             "schema": {
               "type": "string",
               "maxLength": 2048
@@ -745,7 +759,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Успешный ответ.",
             "content": {
               "application/json": {
                 "schema": {
@@ -758,36 +772,36 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           },
           "400": {
-            "description": "Invalid query/body",
+            "description": "Некорректные параметры запроса или JSON в теле. Подробность указана в поле error.",
             "content": {
               "application/json": {
                 "schema": {
@@ -797,13 +811,13 @@
             }
           },
           "503": {
-            "description": "Snapshot or dependency unavailable",
+            "description": "Снимок ещё не готов или нужное хранилище недоступно. При сбое источника сервис продолжает отдавать прежний опубликованный снимок.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Present before first snapshot; seconds to retry."
+                "description": "До появления первого снимка указывает, через сколько секунд повторить запрос."
               }
             },
             "content": {
@@ -815,52 +829,53 @@
             }
           },
           "304": {
-            "description": "Matching ETag; empty body.",
+            "description": "Версия снимка не изменилась. Ответ 304 не содержит тела; используйте ранее полученные данные.",
             "headers": {
               "ETag": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           }
-        }
+        },
+        "description": "Объединённый ответ для интерфейса. from/to, plan_id и utm_link выбирают сегмент. selection задаёт способ отбора по тарифу. search, sort и page меняют только список users, по 20 записей на страницу. График timeline показывает пожизненную выручку когорт, а не денежные поступления за месяц. Все части ответа относятся к одному снимку."
       }
     },
     "/status": {
       "get": {
         "operationId": "getStatus",
         "tags": [
-          "Service"
+          "Состояние сервиса"
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Успешный ответ.",
             "content": {
               "application/json": {
                 "schema": {
@@ -870,7 +885,7 @@
             }
           },
           "400": {
-            "description": "Invalid query/body",
+            "description": "Некорректные параметры запроса или JSON в теле. Подробность указана в поле error.",
             "content": {
               "application/json": {
                 "schema": {
@@ -880,13 +895,13 @@
             }
           },
           "503": {
-            "description": "Snapshot or dependency unavailable",
+            "description": "Снимок ещё не готов или нужное хранилище недоступно. При сбое источника сервис продолжает отдавать прежний опубликованный снимок.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Present before first snapshot; seconds to retry."
+                "description": "До появления первого снимка указывает, через сколько секунд повторить запрос."
               }
             },
             "content": {
@@ -897,18 +912,20 @@
               }
             }
           }
-        }
+        },
+        "summary": "Проверить снимок и расписание обновления",
+        "description": "Показывает версию снимка, последний успешный опрос, следующий запуск, признак выполняющегося обновления и последнюю ошибку. Источники опрашиваются сразу при старте, затем по SYNC_INTERVAL (по умолчанию 10 минут). При сбое остаются прежние опубликованные данные."
       }
     },
     "/healthz": {
       "get": {
         "operationId": "getHealth",
         "tags": [
-          "Service"
+          "Состояние сервиса"
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Успешный ответ.",
             "content": {
               "application/json": {
                 "schema": {
@@ -918,7 +935,7 @@
             }
           },
           "400": {
-            "description": "Invalid query/body",
+            "description": "Некорректные параметры запроса или JSON в теле. Подробность указана в поле error.",
             "content": {
               "application/json": {
                 "schema": {
@@ -928,13 +945,13 @@
             }
           },
           "503": {
-            "description": "Snapshot or dependency unavailable",
+            "description": "Снимок ещё не готов или нужное хранилище недоступно. При сбое источника сервис продолжает отдавать прежний опубликованный снимок.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Present before first snapshot; seconds to retry."
+                "description": "До появления первого снимка указывает, через сколько секунд повторить запрос."
               }
             },
             "content": {
@@ -945,23 +962,25 @@
               }
             }
           }
-        }
+        },
+        "summary": "Проверить подключение сервиса к базе",
+        "description": "Возвращает 200 и status=ok при доступности PostgreSQL и метаданных analytics. Может быть здоровым до первого снимка: готовность данных проверяйте по /status или запросу метрик. Недоступность базы даёт 503."
       }
     },
     "/api/demo/preview": {
       "post": {
         "operationId": "generatePreview",
         "tags": [
-          "Generator"
+          "Генератор данных"
         ],
-        "summary": "Generate an isolated reproducible dataset; PostgreSQL is unchanged",
-        "description": "Full refunds are separate records; same seed, size and history reproduce fingerprint. Conditional rate=renewed/eligible; cumulative=renewed/cumulative_eligible. Preview responses use Cache-Control:no-store.",
+        "summary": "Сгенерировать отдельный набор для эксперимента",
+        "description": "Создаёт воспроизводимый набор и возвращает тот же формат Dashboard с mode=preview и snapshot_id=null. Рабочая PostgreSQL и опубликованный снимок сохраняются. Те же seed, размер, история и дата дают те же данные и fingerprint. Ответ имеет Cache-Control: no-store. Одновременно выполняется одна генерация; повторная параллельная попытка получает 429 и Retry-After.",
         "parameters": [
           {
             "name": "from",
             "in": "query",
             "required": false,
-            "description": "Inclusive date of FIRST subscription in UTC.",
+            "description": "Начало диапазона даты САМОЙ ПЕРВОЙ подписки пользователя, включительно. RFC3339, например 2025-01-01T00:00:00Z. Если не задано — начало истории. Оплаты выбранных пользователей учитываются за всю жизнь.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -971,7 +990,7 @@
             "name": "to",
             "in": "query",
             "required": false,
-            "description": "Exclusive date of FIRST subscription. Lifetime payments remain included.",
+            "description": "Конец диапазона даты САМОЙ ПЕРВОЙ подписки, не включительно. Например 2026-01-01T00:00:00Z вместе с from=2025-01-01T00:00:00Z выбирает когорту 2025 года. Значение должно быть позже from; время нормализуется в UTC.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -981,7 +1000,7 @@
             "name": "plan_id",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Тариф: monthly — 1 месяц, quarterly — 3, half-year — 6, yearly — 12. Значение all выбирает все тарифы там, где оно есть в списке.",
             "schema": {
               "type": "string",
               "enum": [
@@ -998,7 +1017,7 @@
             "name": "selection",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Как отобрать пользователей по тарифу: first_plan — по самому первому тарифу; chain — по наличию первой цепочки выбранного тарифа, включая перешедших с другого. На /api/dashboard для chain нужен конкретный plan_id. Даты в обоих случаях относятся к самой первой подписке вообще.",
             "schema": {
               "type": "string",
               "enum": [
@@ -1012,7 +1031,7 @@
             "name": "page",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Номер страницы, начиная с 1. Значение по умолчанию — 1.",
             "schema": {
               "type": "integer",
               "minimum": 1,
@@ -1024,7 +1043,7 @@
             "name": "search",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Поиск подстроки в UUID или Telegram ID пользователя, максимум 100 символов. Влияет только на список users, а не на сводку и графики дашборда.",
             "schema": {
               "type": "string",
               "maxLength": 100
@@ -1034,7 +1053,7 @@
             "name": "sort",
             "in": "query",
             "required": false,
-            "description": "",
+            "description": "Порядок пользователей: ltv_desc — сначала наибольший LTV; ltv_asc — сначала наименьший; joined_desc — сначала новые первые подписки. При равенстве используется UUID. Не меняет сводные метрики.",
             "schema": {
               "type": "string",
               "enum": [
@@ -1048,7 +1067,7 @@
           {
             "name": "utm_link",
             "in": "query",
-            "description": "Exact case-sensitive user acquisition UTM after trimming whitespace. Omit for all users. Empty value or unknown selects the unattributed group; literal unknown is reserved. Combines with first-ever subscription date filters.",
+            "description": "Точное значение источника пользователя с учётом регистра, например campaign-0. Пробелы по краям удаляются. Без параметра выбираются все источники; пустое значение или unknown выбирает пользователей без UTM. Совмещается с фильтром первой подписки.",
             "schema": {
               "type": "string",
               "maxLength": 2048
@@ -1064,16 +1083,17 @@
               },
               "example": {
                 "seed": 731,
-                "users_count": 47823,
+                "users_count": 10000,
                 "history_months": 24,
                 "data_as_of": "2026-11-01T00:00:00Z"
               }
             }
-          }
+          },
+          "description": "Один JSON-объект с параметрами генерации. Пример создаёт 10000 пользователей и не перезаписывает рабочую БД."
         },
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Успешный ответ.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1083,7 +1103,7 @@
             }
           },
           "400": {
-            "description": "Invalid query/body",
+            "description": "Некорректные параметры запроса или JSON в теле. Подробность указана в поле error.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1093,13 +1113,13 @@
             }
           },
           "503": {
-            "description": "Snapshot or dependency unavailable",
+            "description": "Снимок ещё не готов или нужное хранилище недоступно. При сбое источника сервис продолжает отдавать прежний опубликованный снимок.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Present before first snapshot; seconds to retry."
+                "description": "До появления первого снимка указывает, через сколько секунд повторить запрос."
               }
             },
             "content": {
@@ -1111,12 +1131,13 @@
             }
           },
           "429": {
-            "description": "Another preview generation is active",
+            "description": "Уже выполняется другая генерация. Повторите запрос через число секунд из Retry-After.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
-                }
+                },
+                "description": "Через сколько секунд повторить запрос."
               }
             },
             "content": {
@@ -1134,7 +1155,7 @@
       "get": {
         "operationId": "prometheusMetrics",
         "tags": [
-          "Operations"
+          "Мониторинг"
         ],
         "security": [
           {
@@ -1143,7 +1164,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Prometheus exposition",
+            "description": "Метрики Prometheus в текстовом формате: HTTP-запросы, Go runtime, синхронизация, кеш и доступность хранилищ.",
             "content": {
               "text/plain": {
                 "schema": {
@@ -1153,27 +1174,29 @@
             }
           },
           "401": {
-            "description": "Operations credentials required"
+            "description": "Нужны логин и пароль оператора. Нажмите Authorize и введите OPS_USERNAME и OPS_PASSWORD из локального env-файла."
           },
           "503": {
-            "description": "Operations password not configured"
+            "description": "Доступ к служебному маршруту отключён: на сервере не задан OPS_PASSWORD."
           }
-        }
+        },
+        "summary": "Получить метрики Prometheus",
+        "description": "Служебный текстовый маршрут, а не JSON бизнес-аналитики. Нажмите Authorize и введите OPS_USERNAME/OPS_PASSWORD из env. Готовые графики доступны по /grafana/, запросы и цели сбора — по /prometheus/."
       }
     },
     "/metrics/ltv/by-utm": {
       "get": {
         "operationId": "getLTVByUTM",
         "tags": [
-          "Analytics"
+          "LTV и выручка"
         ],
-        "summary": "LTV grouped by user acquisition UTM",
+        "summary": "Сравнить источники привлечения по UTM",
         "parameters": [
           {
             "name": "from",
             "in": "query",
             "required": false,
-            "description": "Inclusive date of FIRST subscription in UTC.",
+            "description": "Начало диапазона даты САМОЙ ПЕРВОЙ подписки пользователя, включительно. RFC3339, например 2025-01-01T00:00:00Z. Если не задано — начало истории. Оплаты выбранных пользователей учитываются за всю жизнь.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -1183,7 +1206,7 @@
             "name": "to",
             "in": "query",
             "required": false,
-            "description": "Exclusive date of FIRST subscription. Lifetime payments remain included.",
+            "description": "Конец диапазона даты САМОЙ ПЕРВОЙ подписки, не включительно. Например 2026-01-01T00:00:00Z вместе с from=2025-01-01T00:00:00Z выбирает когорту 2025 года. Значение должно быть позже from; время нормализуется в UTC.",
             "schema": {
               "type": "string",
               "format": "date-time"
@@ -1195,12 +1218,12 @@
             "schema": {
               "type": "string"
             },
-            "description": "ETag from an earlier response; matching validator yields 304 without a body."
+            "description": "ETag из предыдущего ответа к тому же адресу с теми же параметрами. При совпадении сервер вернёт 304 без тела. Для первого запроса оставьте пустым."
           },
           {
             "name": "utm_link",
             "in": "query",
-            "description": "Exact case-sensitive user acquisition UTM after trimming whitespace. Omit for all users. Empty value or unknown selects the unattributed group; literal unknown is reserved. Combines with first-ever subscription date filters.",
+            "description": "Точное значение источника пользователя с учётом регистра, например campaign-0. Пробелы по краям удаляются. Без параметра выбираются все источники; пустое значение или unknown выбирает пользователей без UTM. Совмещается с фильтром первой подписки.",
             "schema": {
               "type": "string",
               "maxLength": 2048
@@ -1214,7 +1237,8 @@
               "minimum": 1,
               "maximum": 1000000,
               "default": 1
-            }
+            },
+            "description": "Номер страницы, начиная с 1. Значение по умолчанию — 1."
           },
           {
             "name": "page_size",
@@ -1224,12 +1248,13 @@
               "minimum": 1,
               "maximum": 1000,
               "default": 100
-            }
+            },
+            "description": "Число записей на странице: от 1 до 1000. Значение по умолчанию указано в схеме параметра."
           }
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Успешный ответ.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1242,36 +1267,36 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           },
           "400": {
-            "description": "Invalid query/body",
+            "description": "Некорректные параметры запроса или JSON в теле. Подробность указана в поле error.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1281,13 +1306,13 @@
             }
           },
           "503": {
-            "description": "Snapshot or dependency unavailable",
+            "description": "Снимок ещё не готов или нужное хранилище недоступно. При сбое источника сервис продолжает отдавать прежний опубликованный снимок.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Present before first snapshot; seconds to retry."
+                "description": "До появления первого снимка указывает, через сколько секунд повторить запрос."
               }
             },
             "content": {
@@ -1299,50 +1324,51 @@
             }
           },
           "304": {
-            "description": "Matching ETag; empty body.",
+            "description": "Версия снимка не изменилась. Ответ 304 не содержит тела; используйте ранее полученные данные.",
             "headers": {
               "ETag": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           }
-        }
+        },
+        "description": "Группирует выбранных пользователей по UTM. Пустые источники объединены в unknown. Возвращает пожизненную выручку, средний и медианный LTV. page и page_size относятся к группам источников."
       }
     },
     "/users/by-telegram/{telegram_id}/ltv": {
       "get": {
         "operationId": "getLTVByTelegram",
         "tags": [
-          "Analytics"
+          "Пользователи"
         ],
-        "summary": "Indexed lifetime profile from the published snapshot",
+        "summary": "Найти LTV пользователя по Telegram ID",
         "parameters": [
           {
             "name": "telegram_id",
@@ -1352,8 +1378,8 @@
               "type": "string",
               "pattern": "^[0-9]{1,19}$"
             },
-            "example": "1000000000",
-            "description": "1..9223372036854775807, parsed without floating point."
+            "example": "1000000001",
+            "description": "Положительный Telegram ID: десятичная запись int64 от 1 до 9223372036854775807. Это Telegram ID, а не UUID пользователя. Клиенты должны сохранять точность 64-битного числа."
           },
           {
             "name": "If-None-Match",
@@ -1361,12 +1387,12 @@
             "schema": {
               "type": "string"
             },
-            "description": "ETag from an earlier response; matching validator yields 304 without a body."
+            "description": "ETag из предыдущего ответа к тому же адресу с теми же параметрами. При совпадении сервер вернёт 304 без тела. Для первого запроса оставьте пустым."
           }
         ],
         "responses": {
           "200": {
-            "description": "Success",
+            "description": "Успешный ответ.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1379,36 +1405,36 @@
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           },
           "400": {
-            "description": "Invalid query/body",
+            "description": "Некорректные параметры запроса или JSON в теле. Подробность указана в поле error.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1418,13 +1444,13 @@
             }
           },
           "503": {
-            "description": "Snapshot or dependency unavailable",
+            "description": "Снимок ещё не готов или нужное хранилище недоступно. При сбое источника сервис продолжает отдавать прежний опубликованный снимок.",
             "headers": {
               "Retry-After": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Present before first snapshot; seconds to retry."
+                "description": "До появления первого снимка указывает, через сколько секунд повторить запрос."
               }
             },
             "content": {
@@ -1436,42 +1462,42 @@
             }
           },
           "304": {
-            "description": "Matching ETag; empty body.",
+            "description": "Версия снимка не изменилась. Ответ 304 не содержит тела; используйте ранее полученные данные.",
             "headers": {
               "ETag": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version validator."
+                "description": "Версия снимка для проверки кеша. Передайте значение целиком в заголовке If-None-Match следующего запроса к тому же адресу."
               },
               "Last-Modified": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot time as HTTP-date."
+                "description": "Время снимка в формате HTTP-date, например Wed, 04 Nov 2026 17:00:00 GMT."
               },
               "Cache-Control": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Remaining time to next poll, at most 600s; 0 during sync."
+                "description": "Срок клиентского кеширования до следующего опроса, максимум 600 секунд. Во время обновления max-age равен 0."
               },
               "X-Data-As-Of": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "RFC3339 snapshot time, also present on 304."
+                "description": "Время снимка в RFC3339. Передаётся и в ответе 304, у которого нет JSON-тела."
               },
               "X-Snapshot-Version": {
                 "schema": {
                   "type": "string"
                 },
-                "description": "Snapshot version."
+                "description": "Идентификатор версии опубликованного снимка."
               }
             }
           },
           "404": {
-            "description": "Unknown Telegram ID in selected snapshot",
+            "description": "Пользователь с таким Telegram ID не найден в текущем снимке.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1481,7 +1507,7 @@
             }
           }
         },
-        "description": "No source HTTP access. Positive decimal int64; clients must preserve 64-bit integers. Successful and unknown lookups are version-cached in PostgreSQL and Redis. Full refunds net to zero in original converted RUB value."
+        "description": "Укажите числовой Telegram ID, например 1000000001. Получите UUID, первый тариф, LTV в копейках, число успешных оплат и состояние последней подписки. Запрос использует текущий снимок без обращения к источникам. Пользователь без подписок имеет first_plan_id=null, current_status=none и нулевой LTV; неизвестный ID даёт 404."
       }
     }
   },
@@ -1494,26 +1520,29 @@
             "type": "string",
             "enum": [
               "RUB"
-            ]
+            ],
+            "description": "Валюта сумм ответа. Метрики аналитики возвращаются в RUB после конвертации исходных оплат."
           },
           "users_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число пользователей в этой группе. Пользователи без успешных оплат также учитываются."
           },
           "total_revenue_minor": {
             "type": "integer",
             "format": "int64",
-            "description": "Net lifetime revenue in kopecks."
+            "description": "Пожизненная выручка после возвратов в копейках RUB. Например 99000 означает 990,00 ₽."
           },
           "mean_ltv_minor": {
             "type": "string",
             "pattern": "^-?\\d+\\.\\d{2}$",
             "example": "656762.90",
-            "description": "Mean in fractional kopecks, rounded to two decimal places."
+            "description": "Средний LTV в копейках, десятичная строка с двумя знаками. Например \"99000.00\" означает 990,00 ₽. Строка сохраняет дробные копейки при усреднении."
           },
           "median_ltv_minor": {
             "type": "string",
-            "example": "499000.00"
+            "example": "499000.00",
+            "description": "Медианный LTV в копейках, десятичная строка с двумя знаками. Для чётного числа пользователей берётся среднее двух центральных значений; нулевые LTV включены."
           }
         },
         "required": [
@@ -1522,7 +1551,16 @@
           "total_revenue_minor",
           "mean_ltv_minor",
           "median_ltv_minor"
-        ]
+        ],
+        "title": "Показатели LTV",
+        "description": "Пожизненная выручка и распределение LTV. Успешные оплаты учитываются за вычетом полных возвратов; пользователи без оплат участвуют с нулём. Все суммы приведены к RUB.",
+        "example": {
+          "currency": "RUB",
+          "users_count": 3,
+          "total_revenue_minor": 297000,
+          "mean_ltv_minor": "99000.00",
+          "median_ltv_minor": "99000.00"
+        }
       },
       "Summary": {
         "allOf": [
@@ -1534,7 +1572,8 @@
             "properties": {
               "data_as_of": {
                 "type": "string",
-                "format": "date-time"
+                "format": "date-time",
+                "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
               }
             },
             "required": [
@@ -1545,42 +1584,55 @@
             "type": "object",
             "properties": {
               "conversion": {
-                "$ref": "#/components/schemas/ConversionPolicy"
+                "allOf": [
+                  {
+                    "$ref": "#/components/schemas/ConversionPolicy"
+                  }
+                ],
+                "description": "Правила приведения исходных валют к RUB и округления."
               }
             }
           }
-        ]
+        ],
+        "title": "Сводка LTV со временем снимка",
+        "description": "Общие показатели выбранной когорты вместе с data_as_of и правилом конвертации."
       },
       "Period": {
         "type": "object",
         "properties": {
           "period": {
             "type": "integer",
-            "minimum": 1
+            "minimum": 1,
+            "description": "Номер завершившегося периода, начиная с 1. Значение 1 означает проверку оплаты второго непрерывного периода подписки."
           },
           "eligible": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Пользователи, непрерывно оплатившие периоды с 1 по N включительно и уже завершившие период N. Знаменатель условной доли."
           },
           "renewed": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Из eligible — пользователи, оплатившие следующий непрерывный период N+1. Повторные попытки одного периода дают максимум одно продление."
           },
           "cumulative_eligible": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Участники исходной тарифной когорты, у которых по времени могли закончиться N периодов, включая ушедших раньше. Знаменатель кумулятивной доли."
           },
           "rate": {
             "type": "number",
             "minimum": 0,
             "maximum": 1,
-            "nullable": true
+            "nullable": true,
+            "description": "Условная доля: renewed / eligible. Число от 0 до 1; 0.6 означает 60%. Если eligible=0, возвращается null."
           },
           "cumulative_rate": {
             "type": "number",
             "minimum": 0,
             "maximum": 1,
-            "nullable": true
+            "nullable": true,
+            "description": "Кумулятивная доля: renewed / cumulative_eligible. Учитывает зрелость исходной когорты; не вычисляется произведением условных долей. При нулевом знаменателе — null."
           }
         },
         "required": [
@@ -1590,24 +1642,38 @@
           "cumulative_eligible",
           "rate",
           "cumulative_rate"
-        ]
+        ],
+        "title": "Одно продление подписки",
+        "description": "Для периода N проверяется оплата периода N+1. Незавершённые периоды не считаются оттоком. rate и cumulative_rate имеют разные знаменатели; это доли от 0 до 1.",
+        "example": {
+          "period": 1,
+          "eligible": 80,
+          "renewed": 40,
+          "cumulative_eligible": 100,
+          "rate": 0.5,
+          "cumulative_rate": 0.4
+        }
       },
       "Error": {
         "type": "object",
         "properties": {
           "error": {
-            "type": "string"
+            "type": "string",
+            "description": "Машинное сообщение о причине ошибки. Объяснение HTTP-кода приведено в описании ответа операции."
           },
           "data_as_of": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           }
         },
         "required": [
           "error",
           "data_as_of"
-        ]
+        ],
+        "title": "Ошибка запроса",
+        "description": "HTTP-код определяет тип ошибки, error поясняет причину, data_as_of указывает время доступного снимка либо null."
       },
       "Plan": {
         "type": "object",
@@ -1619,10 +1685,12 @@
               "quarterly",
               "half-year",
               "yearly"
-            ]
+            ],
+            "description": "Код тарифа: monthly — месячный, quarterly — квартальный, half-year — полугодовой, yearly — годовой."
           },
           "name": {
-            "type": "string"
+            "type": "string",
+            "description": "Отображаемое название тарифа."
           },
           "period_months": {
             "type": "integer",
@@ -1631,17 +1699,20 @@
               3,
               6,
               12
-            ]
+            ],
+            "description": "Длительность оплаченного периода тарифа в календарных месяцах: 1, 3, 6 или 12."
           },
           "price": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Цена одного периода тарифа в копейках RUB: 99000 означает 990,00 ₽."
           },
           "currency": {
             "type": "string",
             "enum": [
               "RUB"
-            ]
+            ],
+            "description": "Валюта сумм ответа. Метрики аналитики возвращаются в RUB после конвертации исходных оплат."
           }
         },
         "required": [
@@ -1650,7 +1721,16 @@
           "period_months",
           "price",
           "currency"
-        ]
+        ],
+        "title": "Тариф подписки",
+        "description": "Справочник четырёх тарифов с длительностью в календарных месяцах и ценой в копейках RUB.",
+        "example": {
+          "id": "monthly",
+          "name": "Месячный",
+          "period_months": 1,
+          "price": 99000,
+          "currency": "RUB"
+        }
       },
       "Retention": {
         "type": "object",
@@ -1662,21 +1742,25 @@
               "quarterly",
               "half-year",
               "yearly"
-            ]
+            ],
+            "description": "Код тарифа: monthly — месячный, quarterly — квартальный, half-year — полугодовой, yearly — годовой."
           },
           "data_as_of": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           },
           "cohort_size": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число уникальных участников тарифной когорты до исключения незрелых периодов. Поэтому может отличаться от eligible и cumulative_eligible."
           },
           "periods": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Period"
-            }
+            },
+            "description": "Массив продлений по порядковому номеру периода. Ненаблюдаемые периоды имеют нулевые счётчики и null вместо долей."
           }
         },
         "required": [
@@ -1684,7 +1768,9 @@
           "data_as_of",
           "cohort_size",
           "periods"
-        ]
+        ],
+        "title": "Продления выбранного тарифа",
+        "description": "Первая цепочка пользователя на тарифе учитывается один раз. Переход на другой тариф завершает прежнюю цепочку. Возвращённая оплата не подтверждает оплаченный период, но участник сохраняется в исходной когорте."
       },
       "Status": {
         "type": "object",
@@ -1692,29 +1778,35 @@
           "snapshot_id": {
             "type": "integer",
             "format": "int64",
-            "nullable": true
+            "nullable": true,
+            "description": "Версия опубликованного снимка. null до первой успешной загрузки и в режиме preview."
           },
           "data_as_of": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           },
           "last_success_at": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Время последней успешной синхронизации; null, если успешных опросов ещё не было."
           },
           "next_sync_at": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Время следующего запланированного опроса источников."
           },
           "last_error": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "Последняя ошибка синхронизации. Успешный цикл очищает ошибку и возвращает null."
           },
           "sync_in_progress": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "true — сейчас выполняется фоновая синхронизация. Параллельный цикл не запускается."
           }
         },
         "required": [
@@ -1724,7 +1816,9 @@
           "next_sync_at",
           "last_error",
           "sync_in_progress"
-        ]
+        ],
+        "title": "Состояние синхронизации",
+        "description": "Оперативное состояние фонового опроса. При ошибке текущий снимок и курсор сохраняются. Следующий успешный цикл очищает last_error. Ответ не кешируется."
       },
       "Health": {
         "type": "object",
@@ -1733,66 +1827,81 @@
             "type": "string",
             "enum": [
               "ok"
-            ]
+            ],
+            "description": "ok — подключение к PostgreSQL и проверка метаданных прошли. Наличие первого снимка проверяется отдельно."
           },
           "data_as_of": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           }
         },
         "required": [
           "status",
           "data_as_of"
-        ]
+        ],
+        "title": "Проверка работоспособности",
+        "description": "Проверяет подключение к PostgreSQL, а в analytics также доступность метаданных. status=ok не гарантирует, что первый снимок уже построен."
       },
       "PreviewRequest": {
         "type": "object",
         "properties": {
           "seed": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Целочисленный seed генератора. Вместе с размером, глубиной истории и временем среза воспроизводит те же данные и fingerprint."
           },
           "users_count": {
             "type": "integer",
             "minimum": 10000,
             "maximum": 100000,
-            "default": 31419
+            "default": 31419,
+            "description": "Размер всего набора пользователей. Для генерации допустимо от 10000 до 100000."
           },
           "history_months": {
             "type": "integer",
             "minimum": 18,
             "maximum": 24,
-            "default": 24
+            "default": 24,
+            "description": "Глубина истории в месяцах. Для генерации допустимо от 18 до 24."
           },
           "data_as_of": {
             "type": "string",
             "format": "date-time",
-            "example": "2026-11-01T00:00:00Z"
+            "example": "2026-11-01T00:00:00Z",
+            "description": "Фиксированное время среза RFC3339: от 2000-01-01T00:00:00Z до текущего времени включительно. Будущая дата отклоняется."
           }
-        }
+        },
+        "title": "Параметры тестового набора",
+        "description": "Один JSON-объект размером не более 4096 байт; неизвестные поля запрещены. Неуказанные поля сохраняют значения по умолчанию: seed=42, users_count=31419, history_months=24, data_as_of=2026-11-01T00:00:00Z."
       },
       "SourceUser": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Идентификатор записи в источнике; для пользователей, подписок и платежей это UUID."
           },
           "telegram_id": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Уникальный положительный Telegram ID, int64. Не является UUID."
           },
           "created_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Время создания записи в UTC, формат RFC3339."
           },
           "utm_link": {
-            "type": "string"
+            "type": "string",
+            "description": "Источник привлечения пользователя. В агрегатах отсутствие UTM нормализуется в зарезервированное значение unknown («Без UTM»)."
           },
           "updated_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Время последнего изменения записи. Используется для инкрементальной загрузки через updated_since."
           }
         },
         "required": [
@@ -1801,18 +1910,29 @@
           "created_at",
           "utm_link",
           "updated_at"
-        ]
+        ],
+        "title": "Пользователь источника",
+        "description": "UUID пользователя, уникальный положительный Telegram ID, даты создания/изменения и UTM-источник.",
+        "example": {
+          "id": "d50f773d-3c19-4093-a385-c467cc8b4688",
+          "telegram_id": 1000000001,
+          "created_at": "2025-10-01T00:00:00Z",
+          "utm_link": "campaign-0",
+          "updated_at": "2025-10-01T00:00:00Z"
+        }
       },
       "SourceSubscription": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Идентификатор записи в источнике; для пользователей, подписок и платежей это UUID."
           },
           "user_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "UUID пользователя из users-service. Не путать с числовым telegram_id."
           },
           "plan_id": {
             "type": "string",
@@ -1821,7 +1941,8 @@
               "quarterly",
               "half-year",
               "yearly"
-            ]
+            ],
+            "description": "Код тарифа: monthly — месячный, quarterly — квартальный, half-year — полугодовой, yearly — годовой."
           },
           "status": {
             "type": "string",
@@ -1829,24 +1950,29 @@
               "active",
               "canceled",
               "expired"
-            ]
+            ],
+            "description": "active — активная подписка; canceled — отменённая; expired — истёкшая. Продления подтверждаются оплатами."
           },
           "started_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Время начала подписки. Вместе с id определяет порядок подписок пользователя."
           },
           "current_period_end": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Конец текущего периода подписки. Сам по себе не доказывает наличие оплаты."
           },
           "canceled_at": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Время отмены подписки; null, если отмены нет. Отмена сама по себе не является возвратом денег."
           },
           "updated_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Время последнего изменения записи. Используется для инкрементальной загрузки через updated_since."
           }
         },
         "required": [
@@ -1858,27 +1984,42 @@
           "current_period_end",
           "canceled_at",
           "updated_at"
-        ]
+        ],
+        "title": "Подписка источника",
+        "description": "Ссылка на существующего пользователя и тариф. Статусы: active — активна, canceled — отменена, expired — истекла. Для расчёта продлений используются оплаты, а не один только статус подписки.",
+        "example": {
+          "id": "ee4db1c8-e1d6-4304-af8d-02ee5fc62fae",
+          "user_id": "d50f773d-3c19-4093-a385-c467cc8b4688",
+          "plan_id": "monthly",
+          "status": "expired",
+          "started_at": "2025-11-01T00:00:00Z",
+          "current_period_end": "2025-12-01T00:00:00Z",
+          "canceled_at": null,
+          "updated_at": "2025-12-01T00:00:00Z"
+        }
       },
       "SourcePayment": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Идентификатор записи в источнике; для пользователей, подписок и платежей это UUID."
           },
           "user_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "UUID пользователя из users-service. Не путать с числовым telegram_id."
           },
           "subscription_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "UUID подписки, к которой относится попытка оплаты или возврат."
           },
           "amount": {
             "type": "integer",
             "format": "int64",
-            "description": "Native atomic units: RUB=2 decimals, BTC=8, canonical USDT=6. Positive int64. Not always RUB kopecks."
+            "description": "Положительная сумма int64 в минимальных единицах исходной валюты: RUB — копейки (2 знака), BTC — сатоши (8), USDT — 6 знаков. Например 100000000 для BTC означает 1 BTC, а не рубли."
           },
           "currency": {
             "type": "string",
@@ -1886,7 +2027,8 @@
               "RUB",
               "BTC",
               "USDT"
-            ]
+            ],
+            "description": "Исходная валюта платёжной записи: RUB, BTC или USDT. amount хранится в её собственных минимальных единицах."
           },
           "status": {
             "type": "string",
@@ -1894,30 +2036,41 @@
               "succeeded",
               "failed",
               "refunded"
-            ]
+            ],
+            "description": "succeeded — успешная оплата; failed — неуспешная попытка; refunded — отдельный полный возврат исходной оплаты."
           },
           "period_start": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Начало периода, за который выполняется платёжная попытка. Повторные попытки сохраняют те же границы периода."
           },
           "period_end": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Конец оплачиваемого периода. Периоды считаются календарными месяцами с сохранением исходного дня и ограничением последним днём месяца."
           },
           "created_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Время создания записи в UTC, формат RFC3339."
           },
           "updated_at": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Время последнего изменения записи. Используется для инкрементальной загрузки через updated_since."
           },
           "refund_of_payment_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Для refunded — UUID исходного succeeded-платежа. Поддерживается один полный возврат исходной оплаты."
           },
           "fx": {
-            "$ref": "#/components/schemas/ExchangeRate"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ExchangeRate"
+              }
+            ],
+            "description": "Исторический курс исходной оплаты. Для BTC/USDT обязателен, для RUB отсутствует. Возврат использует тот же курс."
           }
         },
         "required": [
@@ -1932,7 +2085,20 @@
           "created_at",
           "updated_at"
         ],
-        "description": "Original native amount is preserved. Crypto requires a historical FX quote; RUB uses identity conversion. Full refunds must copy original amount, asset and quote. Quote failure rejects publication. Ledger USDT is normalized to 6 decimals; this service does not receive blockchain transactions."
+        "description": "Запись платёжного журнала: успешная оплата, неуспешная попытка или отдельный полный возврат. amount хранится в исходной валюте. Для BTC/USDT обязателен fx, для RUB fx отсутствует. Возврат сохраняет сумму, валюту и курс исходной оплаты и ссылается на неё через refund_of_payment_id. Некорректная котировка отменяет публикацию нового снимка. USDT использует 6 десятичных знаков; обработки реальных блокчейн-транзакций нет.",
+        "title": "Оплата, попытка или возврат",
+        "example": {
+          "id": "7374ccea-eb38-4292-9477-257e317d01bc",
+          "user_id": "d50f773d-3c19-4093-a385-c467cc8b4688",
+          "subscription_id": "ee4db1c8-e1d6-4304-af8d-02ee5fc62fae",
+          "amount": 99000,
+          "currency": "RUB",
+          "status": "succeeded",
+          "period_start": "2025-11-01T00:00:00Z",
+          "period_end": "2025-12-01T00:00:00Z",
+          "created_at": "2025-11-01T00:00:00Z",
+          "updated_at": "2025-11-01T00:00:00Z"
+        }
       },
       "PlanSummary": {
         "allOf": [
@@ -1949,14 +2115,17 @@
                   "quarterly",
                   "half-year",
                   "yearly"
-                ]
+                ],
+                "description": "Код тарифа: monthly — месячный, quarterly — квартальный, half-year — полугодовой, yearly — годовой."
               }
             },
             "required": [
               "plan_id"
             ]
           }
-        ]
+        ],
+        "title": "LTV по первому тарифу",
+        "description": "Вся пожизненная выручка пользователя относится к тарифу его первой подписки, даже после перехода на другой тариф."
       },
       "DashboardPlan": {
         "allOf": [
@@ -1967,7 +2136,8 @@
             "type": "object",
             "properties": {
               "name": {
-                "type": "string"
+                "type": "string",
+                "description": "Отображаемое название тарифа."
               },
               "period_months": {
                 "type": "integer",
@@ -1976,7 +2146,8 @@
                   3,
                   6,
                   12
-                ]
+                ],
+                "description": "Длительность оплаченного периода тарифа в календарных месяцах: 1, 3, 6 или 12."
               }
             },
             "required": [
@@ -1984,45 +2155,55 @@
               "period_months"
             ]
           }
-        ]
+        ],
+        "title": "Тариф и его показатели",
+        "description": "Группа пользователей по первому тарифу с названием, длительностью и пожизненной выручкой."
       },
       "ByPlan": {
         "type": "object",
         "properties": {
           "data_as_of": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           },
           "plans": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/PlanSummary"
-            }
+            },
+            "description": "Данные по тарифам. Смысл элементов определяется моделью ответа: справочник тарифов или группы LTV."
           }
         },
         "required": [
           "data_as_of",
           "plans"
-        ]
+        ],
+        "title": "Сравнение тарифных когорт",
+        "description": "Агрегаты LTV по первому тарифу каждого пользователя."
       },
       "Plans": {
         "type": "object",
         "properties": {
           "data_as_of": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           },
           "plans": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Plan"
-            }
+            },
+            "description": "Данные по тарифам. Смысл элементов определяется моделью ответа: справочник тарифов или группы LTV."
           }
         },
         "required": [
           "data_as_of",
           "plans"
-        ]
+        ],
+        "title": "Справочник тарифов снимка",
+        "description": "Тарифы читаются из опубликованного снимка. Запрос не обращается к subscriptions-service."
       },
       "RetentionReport": {
         "type": "object",
@@ -2034,24 +2215,29 @@
               "quarterly",
               "half-year",
               "yearly"
-            ]
+            ],
+            "description": "Код тарифа: monthly — месячный, quarterly — квартальный, half-year — полугодовой, yearly — годовой."
           },
           "cohort_size": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число уникальных участников тарифной когорты до исключения незрелых периодов. Поэтому может отличаться от eligible и cumulative_eligible."
           },
           "periods": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Period"
-            }
+            },
+            "description": "Массив продлений по порядковому номеру периода. Ненаблюдаемые периоды имеют нулевые счётчики и null вместо долей."
           }
         },
         "required": [
           "plan_id",
           "cohort_size",
           "periods"
-        ]
+        ],
+        "title": "Тарифная кривая продлений",
+        "description": "Продления одной тарифной цепочки внутри общего ответа дашборда."
       },
       "Dataset": {
         "type": "object",
@@ -2059,59 +2245,73 @@
           "seed": {
             "type": "integer",
             "format": "int64",
-            "nullable": true
+            "nullable": true,
+            "description": "Целочисленный seed генератора. Вместе с размером, глубиной истории и временем среза воспроизводит те же данные и fingerprint."
           },
           "generator_version": {
-            "type": "string"
+            "type": "string",
+            "description": "Версия генератора или миграции набора. Нужна для проверки происхождения данных."
           },
           "history_months": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Глубина истории в месяцах. Для генерации допустимо от 18 до 24."
           },
           "dataset_as_of": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Фиксированная верхняя граница истории набора. Это параметр генерации, а не время последнего опроса источников."
           },
           "users_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Размер всего набора пользователей. Для генерации допустимо от 10000 до 100000."
           },
           "subscriptions_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число подписок во всём наборе данных."
           },
           "payments_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число записей платёжного журнала во всём наборе: успешные оплаты, неуспешные попытки и возвраты."
           },
           "succeeded_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число записей succeeded в исходном наборе, включая впоследствии возвращённые оплаты."
           },
           "failed_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число неуспешных платёжных попыток."
           },
           "refunded_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число отдельных записей полного возврата."
           },
           "switches_count": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число пользователей, имевших подписки более чем на одном тарифе."
           },
           "unpaid_users": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Пользователи без единой записи succeeded. Это не то же самое, что нулевой LTV после возврата."
           },
           "active_periods": {
             "type": "integer",
-            "minimum": 0
+            "minimum": 0,
+            "description": "Число подписок, у которых started_at раньше времени снимка, а current_period_end позже него. Это временной признак, а не подтверждение оплаты."
           },
           "fingerprint": {
             "type": "string",
-            "pattern": "^[a-f0-9]{64}$"
+            "pattern": "^[a-f0-9]{64}$",
+            "description": "SHA-256 канонического набора данных: 64 шестнадцатеричных символа. Совпадение проверяет воспроизводимость генерации."
           },
           "samples": {
             "type": "object",
@@ -2120,26 +2320,46 @@
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/SourceUser"
-                }
+                },
+                "description": "Исходные пользователи или страница пользовательской выборки — в зависимости от содержащей модели."
               },
               "subscriptions": {
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/SourceSubscription"
-                }
+                },
+                "description": "Образцы исходных подписок."
               },
               "payments": {
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/SourcePayment"
-                }
+                },
+                "description": "Образцы исходных платёжных записей разных статусов."
               }
             },
             "required": [
               "users",
               "subscriptions",
               "payments"
-            ]
+            ],
+            "description": "Небольшая выборка исходных пользователей, подписок и платежей из этого же набора."
+          },
+          "currencies": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "description": "Число исходных платёжных записей в каждой валюте, включая попытки и возвраты. Ключи — RUB, BTC, USDT."
+          },
+          "conversion": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConversionPolicy"
+              }
+            ],
+            "description": "Правила приведения исходных валют к RUB и округления."
           }
         },
         "required": [
@@ -2158,33 +2378,41 @@
           "active_periods",
           "fingerprint",
           "samples"
-        ]
+        ],
+        "title": "Паспорт набора данных",
+        "description": "Метаданные всего исходного набора, проверки пограничных случаев и образцы записей. Фильтры когорты не меняют этот паспорт."
       },
       "DashboardUser": {
         "type": "object",
         "properties": {
           "id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "Идентификатор записи в источнике; для пользователей, подписок и платежей это UUID."
           },
           "telegram_id": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Уникальный положительный Telegram ID, int64. Не является UUID."
           },
           "first_subscription_at": {
             "type": "string",
             "format": "date-time",
-            "nullable": true
+            "nullable": true,
+            "description": "Время самой первой подписки; null для пользователя без подписок."
           },
           "first_plan_id": {
-            "type": "string"
+            "type": "string",
+            "description": "Тариф самой первой подписки. Последующие переходы не меняют исходную тарифную группу LTV. Пустая строка означает отсутствие подписок."
           },
           "ltv_minor": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "LTV пользователя в копейках RUB: успешные оплаты за всю жизнь минус полные возвраты, после конвертации валют."
           },
           "utm_link": {
-            "type": "string"
+            "type": "string",
+            "description": "Источник привлечения пользователя. В агрегатах отсутствие UTM нормализуется в зарезервированное значение unknown («Без UTM»)."
           }
         },
         "required": [
@@ -2194,42 +2422,54 @@
           "first_plan_id",
           "ltv_minor",
           "utm_link"
-        ]
+        ],
+        "title": "Пользователь выбранного сегмента",
+        "description": "UUID, Telegram ID, дата первой подписки, первый тариф, пожизненный LTV и источник."
       },
       "Dashboard": {
         "type": "object",
         "properties": {
           "data_as_of": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           },
           "snapshot_id": {
             "type": "integer",
             "format": "int64",
-            "nullable": true
+            "nullable": true,
+            "description": "Версия опубликованного снимка. null до первой успешной загрузки и в режиме preview."
           },
           "mode": {
             "type": "string",
             "enum": [
               "live",
               "preview"
-            ]
+            ],
+            "description": "live — текущий опубликованный снимок PostgreSQL; preview — отдельный результат генератора без изменения БД."
           },
           "selection": {
             "type": "string",
             "enum": [
               "first_plan",
               "chain"
-            ]
+            ],
+            "description": "Как отобрать пользователей по тарифу: first_plan — по самому первому тарифу; chain — по наличию первой цепочки выбранного тарифа, включая перешедших с другого. На /api/dashboard для chain нужен конкретный plan_id. Даты в обоих случаях относятся к самой первой подписке вообще."
           },
           "summary": {
-            "$ref": "#/components/schemas/SummaryValues"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SummaryValues"
+              }
+            ],
+            "description": "Общие показатели выбранной когорты. Поиск и страница списка пользователей на них не влияют."
           },
           "plans": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DashboardPlan"
-            }
+            },
+            "description": "Данные по тарифам. Смысл элементов определяется моделью ответа: справочник тарифов или группы LTV."
           },
           "timeline": {
             "type": "array",
@@ -2243,7 +2483,8 @@
                   "properties": {
                     "month": {
                       "type": "string",
-                      "example": "2026-01"
+                      "example": "2026-01",
+                      "description": "Месяц самой первой подписки в формате YYYY-MM, например 2026-01."
                     }
                   },
                   "required": [
@@ -2251,13 +2492,15 @@
                   ]
                 }
               ]
-            }
+            },
+            "description": "LTV и выручка когорт по месяцу первой подписки. Это пожизненная выручка пользователей когорты, а не поступления денег за месяц."
           },
           "retention": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/RetentionReport"
-            }
+            },
+            "description": "Условные и кумулятивные продления по тарифным цепочкам, включая переходы на тариф."
           },
           "cohorts": {
             "type": "array",
@@ -2265,17 +2508,20 @@
               "type": "object",
               "properties": {
                 "month": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Месяц самой первой подписки в формате YYYY-MM, например 2026-01."
                 },
                 "users_count": {
                   "type": "integer",
-                  "minimum": 0
+                  "minimum": 0,
+                  "description": "Число пользователей в этой группе. Пользователи без успешных оплат также учитываются."
                 },
                 "periods": {
                   "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/Period"
-                  }
+                  },
+                  "description": "Массив продлений по порядковому номеру периода. Ненаблюдаемые периоды имеют нулевые счётчики и null вместо долей."
                 }
               },
               "required": [
@@ -2283,7 +2529,8 @@
                 "users_count",
                 "periods"
               ]
-            }
+            },
+            "description": "Матрица продлений по месяцу первой подписки для выбранного тарифа; при all используется месячный тариф."
           },
           "distribution": {
             "type": "array",
@@ -2291,20 +2538,24 @@
               "type": "object",
               "properties": {
                 "label": {
-                  "type": "string"
+                  "type": "string",
+                  "description": "Подпись диапазона LTV в рублях."
                 },
                 "min_minor": {
                   "type": "integer",
-                  "format": "int64"
+                  "format": "int64",
+                  "description": "Нижняя граница диапазона LTV в копейках, включительно."
                 },
                 "max_minor": {
                   "type": "integer",
                   "format": "int64",
-                  "nullable": true
+                  "nullable": true,
+                  "description": "Верхняя граница диапазона LTV в копейках, не включительно. null означает отсутствие верхней границы."
                 },
                 "users_count": {
                   "type": "integer",
-                  "minimum": 0
+                  "minimum": 0,
+                  "description": "Число пользователей в этой группе. Пользователи без успешных оплат также учитываются."
                 }
               },
               "required": [
@@ -2313,7 +2564,8 @@
                 "max_minor",
                 "users_count"
               ]
-            }
+            },
+            "description": "Распределение пользователей выбранной когорты по диапазонам LTV."
           },
           "users": {
             "type": "object",
@@ -2322,21 +2574,26 @@
                 "type": "array",
                 "items": {
                   "$ref": "#/components/schemas/DashboardUser"
-                }
+                },
+                "description": "Записи текущей страницы."
               },
               "page": {
-                "type": "integer"
+                "type": "integer",
+                "description": "Номер текущей страницы, начиная с 1."
               },
               "page_size": {
-                "type": "integer"
+                "type": "integer",
+                "description": "Размер страницы. Список пользователей дашборда возвращает по 20 записей."
               },
               "total": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "Общее число записей выборки до применения пагинации."
               },
               "pages": {
                 "type": "integer",
-                "minimum": 0
+                "minimum": 0,
+                "description": "Общее число страниц пользовательской выборки."
               }
             },
             "required": [
@@ -2345,25 +2602,38 @@
               "page_size",
               "total",
               "pages"
-            ]
+            ],
+            "description": "Исходные пользователи или страница пользовательской выборки — в зависимости от содержащей модели."
           },
           "dataset": {
-            "$ref": "#/components/schemas/Dataset"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Dataset"
+              }
+            ],
+            "description": "Паспорт всего набора данных. Его размеры не уменьшаются при применении фильтров дашборда."
           },
           "utm_groups": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/UTMGroup"
-            }
+            },
+            "description": "Показатели выбранной когорты в разрезе источников привлечения."
           },
           "utm_options": {
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "Доступные варианты UTM для фильтра; unknown означает отсутствие источника."
           },
           "conversion": {
-            "$ref": "#/components/schemas/ConversionPolicy"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConversionPolicy"
+              }
+            ],
+            "description": "Правила приведения исходных валют к RUB и округления."
           }
         },
         "required": [
@@ -2379,7 +2649,9 @@
           "distribution",
           "users",
           "dataset"
-        ]
+        ],
+        "title": "Данные всех разделов аналитики",
+        "description": "Готовые показатели, графики, когорты и пользовательская выборка одного снимка. Поиск и сортировка применяются к users; dataset описывает весь набор."
       },
       "ExchangeRate": {
         "type": "object",
@@ -2391,22 +2663,31 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "Уникальный идентификатор зафиксированной котировки; это строка, а не UUID пользователя."
           },
           "rub_per_unit": {
             "type": "string",
             "pattern": "^[0-9]{1,12}(\\.[0-9]{1,12})?$",
-            "description": "Exact positive RUB major units per one native asset unit, frozen at payment time."
+            "description": "Точный положительный курс: рублей за одну целую единицу валюты, например за 1 BTC. Десятичная строка фиксируется на момент платежа."
           },
           "as_of": {
             "type": "string",
             "format": "date-time",
-            "description": "Must not be later than payment.created_at. Full refunds copy the original quote."
+            "description": "Время котировки не позже created_at оплаты. Возврат копирует курс и время котировки исходного платежа."
           },
           "source": {
             "type": "string",
-            "description": "Mock fixture: deterministic-demo-fixture-v1. Synthetic, not a market feed."
+            "description": "Источник учебной котировки: deterministic-demo-fixture-v1. Курсы синтетические и воспроизводимые; это не биржевые котировки."
           }
+        },
+        "title": "Исторический курс оплаты",
+        "description": "Неизменяемая учебная котировка. Применяется точная рациональная арифметика без денежных float64. Возврат использует ту же котировку, что и исходная оплата.",
+        "example": {
+          "id": "demo-fx-v1/2026-01/BTC",
+          "rub_per_unit": "5000000.00",
+          "as_of": "2026-01-01T00:00:00Z",
+          "source": "deterministic-demo-fixture-v1"
         }
       },
       "ConversionPolicy": {
@@ -2421,14 +2702,24 @@
             "type": "string",
             "enum": [
               "RUB"
-            ]
+            ],
+            "description": "Валюта сумм ответа. Метрики аналитики возвращаются в RUB после конвертации исходных оплат."
           },
           "method": {
-            "type": "string"
+            "type": "string",
+            "description": "Правило конвертации: historical_payment_rate; full_refund_at_original_rate — исторический курс оплаты, полный возврат по исходному курсу."
           },
           "rounding": {
-            "type": "string"
+            "type": "string",
+            "description": "half_away_from_zero_per_payment — точная конвертация и округление каждой оплаты до копейки, половина округляется от нуля."
           }
+        },
+        "title": "Правила конвертации в рубли",
+        "description": "Исторический курс каждой оплаты, возврат по исходному курсу, округление каждой операции до копейки половиной от нуля.",
+        "example": {
+          "currency": "RUB",
+          "method": "historical_payment_rate; full_refund_at_original_rate",
+          "rounding": "half_away_from_zero_per_payment"
         }
       },
       "UTMGroup": {
@@ -2443,11 +2734,14 @@
             ],
             "properties": {
               "utm_link": {
-                "type": "string"
+                "type": "string",
+                "description": "Источник привлечения пользователя. В агрегатах отсутствие UTM нормализуется в зарезервированное значение unknown («Без UTM»)."
               }
             }
           }
-        ]
+        ],
+        "title": "LTV одного источника",
+        "description": "Пользователи с одним UTM и их пожизненные показатели. unknown объединяет пользователей без UTM."
       },
       "UTMResponse": {
         "type": "object",
@@ -2462,33 +2756,46 @@
         "properties": {
           "data_as_of": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           },
           "currency": {
             "type": "string",
             "enum": [
               "RUB"
-            ]
+            ],
+            "description": "Валюта сумм ответа. Метрики аналитики возвращаются в RUB после конвертации исходных оплат."
           },
           "conversion": {
-            "$ref": "#/components/schemas/ConversionPolicy"
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ConversionPolicy"
+              }
+            ],
+            "description": "Правила приведения исходных валют к RUB и округления."
           },
           "groups": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/UTMGroup"
-            }
+            },
+            "description": "Группы UTM на выбранной странице. Доходы пользователей остаются пожизненными."
           },
           "total": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Число UTM-групп до пагинации. Это не число пользователей."
           },
           "page": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Номер текущей страницы, начиная с 1."
           },
           "page_size": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Число UTM-групп на странице: по умолчанию 100, максимум 1000."
           }
-        }
+        },
+        "title": "Сравнение источников с пагинацией",
+        "description": "Одна страница UTM-групп. total — число групп, а не число пользователей."
       },
       "UserLTV": {
         "type": "object",
@@ -2505,25 +2812,28 @@
         "properties": {
           "user_id": {
             "type": "string",
-            "format": "uuid"
+            "format": "uuid",
+            "description": "UUID пользователя из users-service. Не путать с числовым telegram_id."
           },
           "telegram_id": {
             "type": "integer",
-            "format": "int64"
+            "format": "int64",
+            "description": "Уникальный положительный Telegram ID, int64. Не является UUID."
           },
           "first_plan_id": {
             "type": "string",
-            "nullable": true
+            "nullable": true,
+            "description": "Тариф самой первой подписки. Последующие переходы не меняют исходную тарифную группу LTV. null означает отсутствие подписок."
           },
           "ltv": {
             "type": "integer",
             "format": "int64",
-            "description": "Net lifetime revenue in RUB kopecks."
+            "description": "LTV пользователя в копейках RUB: успешные оплаты за всю жизнь минус полные возвраты, после конвертации валют."
           },
           "payments_count": {
             "type": "integer",
             "minimum": 0,
-            "description": "Succeeded operations, including subsequently refunded originals; excludes failed attempts and refund rows."
+            "description": "Число записей succeeded, включая оплаты, которые затем полностью вернули. Неуспешные попытки и отдельные записи возвратов сюда не входят."
           },
           "current_status": {
             "type": "string",
@@ -2534,26 +2844,61 @@
               "expired",
               "canceled"
             ],
-            "description": "Latest subscription by started_at/id. Active whose current_period_end passed is expired; none means no subscription."
+            "description": "Состояние последней подписки по started_at, затем id: active — активна, canceled — отменена, expired — истекла, none — подписок нет, unknown — состояние не определено. Подписка active с прошедшим current_period_end считается expired."
           },
           "currency": {
             "type": "string",
             "enum": [
               "RUB"
-            ]
+            ],
+            "description": "Валюта сумм ответа. Метрики аналитики возвращаются в RUB после конвертации исходных оплат."
           },
           "data_as_of": {
             "type": "string",
-            "format": "date-time"
+            "format": "date-time",
+            "description": "Единое время данных снимка в UTC, формат RFC3339. До первого снимка и в некоторых ошибках может быть null, если схема допускает это."
           }
-        }
+        },
+        "title": "LTV пользователя по Telegram ID",
+        "description": "Индексированный профиль из текущего снимка. Не обращается к HTTP-источникам. Полный возврат обнуляет вклад исходной оплаты в её исходной рублёвой оценке."
       }
     },
     "securitySchemes": {
       "OperationsBasic": {
         "type": "http",
-        "scheme": "basic"
+        "scheme": "basic",
+        "description": "HTTP Basic для метрик мониторинга. Введите OPS_USERNAME и OPS_PASSWORD из env-файла. Бизнес-метрики авторизации не требуют."
       }
     }
-  }
+  },
+  "tags": [
+    {
+      "name": "LTV и выручка",
+      "description": "Пожизненная выручка, среднее и медиана по всем пользователям, первым тарифам и UTM."
+    },
+    {
+      "name": "Продления",
+      "description": "Удержание с учётом завершённых периодов и зрелости исходной когорты."
+    },
+    {
+      "name": "Дашборд",
+      "description": "Справочник тарифов и готовые данные для интерфейса."
+    },
+    {
+      "name": "Состояние сервиса",
+      "description": "Работоспособность базы, версия снимка и расписание опросов."
+    },
+    {
+      "name": "Генератор данных",
+      "description": "Эксперименты с seed без изменения рабочей базы."
+    },
+    {
+      "name": "Мониторинг",
+      "description": "Технические показатели для Prometheus; нужен доступ оператора."
+    },
+    {
+      "name": "Пользователи",
+      "description": "Поиск конкретного пользователя по числовому Telegram ID."
+    }
+  ]
 }
