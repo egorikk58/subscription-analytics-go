@@ -27,6 +27,7 @@ internal/app/web/dist
 /artifacts/
 /reports/
 /docs/screenshots/
+/docs/demo/
 **/*.screenshot.png
 **/*.screenshot.jpg
 *.log
