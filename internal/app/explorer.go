@@ -4,14 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"subscription-analytics/internal/core"
 )
 
@@ -65,14 +63,15 @@ func dashboardQuery(r *http.Request) (core.DashboardQuery, error) {
 }
 
 func (s *service) dashboard(w http.ResponseWriter, r *http.Request) {
-	q, err := dashboardQuery(r)
-	if err != nil {
-		write(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "data_as_of": nil})
-		return
-	}
 	var id *int64
 	var asof, next *time.Time
-	if err = s.db.QueryRow(r.Context(), "SELECT current_id,(SELECT data_as_of FROM analytics.snapshots WHERE id=current_id),next_sync FROM analytics.state WHERE id=1").Scan(&id, &asof, &next); err != nil || id == nil {
+	snapshotErr := s.db.QueryRow(r.Context(), "SELECT current_id,(SELECT data_as_of FROM analytics.snapshots WHERE id=current_id),next_sync FROM analytics.state WHERE id=1").Scan(&id, &asof, &next)
+	q, err := dashboardQuery(r)
+	if err != nil {
+		write(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "data_as_of": asof})
+		return
+	}
+	if snapshotErr != nil || id == nil {
 		w.Header().Set("Retry-After", "5")
 		write(w, http.StatusServiceUnavailable, map[string]any{"error": "snapshot unavailable", "data_as_of": nil})
 		return
@@ -80,44 +79,17 @@ func (s *service) dashboard(w http.ResponseWriter, r *http.Request) {
 	encoded, _ := json.Marshal(q)
 	hash := sha256.Sum256(append([]byte("dashboard-v3:"), encoded...))
 	key := fmt.Sprintf("%x", hash)
-	redisKey := fmt.Sprintf("snapshot:%d:%s", *id, key)
-	value, err, _ := s.flight.Do(redisKey, func() (any, error) {
-		redisCtx, cancel := context.WithTimeout(r.Context(), 200*time.Millisecond)
-		body, cacheErr := s.redis.Get(redisCtx, redisKey).Bytes()
-		s.obs.cacheResult("redis", cacheErr)
-		cancel()
-		if cacheErr == nil {
-			return body, nil
+	body, err := s.cachedResponse(r.Context(), *id, key, func(ctx context.Context) ([]byte, error) {
+		snap, err := s.loadSnapshot(ctx, *id)
+		if err != nil {
+			return nil, err
 		}
-		cacheErr = s.db.QueryRow(r.Context(), "SELECT body FROM analytics.responses WHERE snapshot_id=$1 AND key=$2", *id, key).Scan(&body)
-		s.obs.cacheResult("postgres", cacheErr)
-		if errors.Is(cacheErr, pgx.ErrNoRows) {
-			defer s.obs.buildStarted()()
-			var raw []byte
-			if cacheErr = s.db.QueryRow(r.Context(), "SELECT data FROM analytics.snapshots WHERE id=$1", *id).Scan(&raw); cacheErr != nil {
-				return nil, cacheErr
-			}
-			var snap core.Snapshot
-			if cacheErr = json.Unmarshal(raw, &snap); cacheErr != nil {
-				return nil, cacheErr
-			}
-			report, e := snap.Dashboard(q)
-			if e != nil {
-				return nil, e
-			}
-			report.SnapshotID = id
-			body, cacheErr = json.Marshal(report)
-			if cacheErr == nil {
-				_, cacheErr = s.db.Exec(r.Context(), "INSERT INTO analytics.responses VALUES($1,$2,$3) ON CONFLICT DO NOTHING", *id, key, body)
-			}
+		report, err := snap.Dashboard(q)
+		if err != nil {
+			return nil, err
 		}
-		if cacheErr != nil {
-			return nil, cacheErr
-		}
-		redisCtx, cancel = context.WithTimeout(r.Context(), 200*time.Millisecond)
-		_ = s.redis.Set(redisCtx, redisKey, body, 0).Err()
-		cancel()
-		return body, nil
+		report.SnapshotID = id
+		return json.Marshal(report)
 	})
 	if err != nil {
 		status := http.StatusServiceUnavailable
@@ -145,7 +117,7 @@ func (s *service) dashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(value.([]byte))
+	_, _ = w.Write(body)
 }
 
 type previewRequest struct {
@@ -201,15 +173,23 @@ func (s *service) preview(w http.ResponseWriter, r *http.Request) {
 		write(w, http.StatusInternalServerError, map[string]any{"error": "cannot generate dataset", "data_as_of": nil})
 		return
 	}
-	_ = snapshot.Dataset.SetConfig(fmt.Sprintf("%s/%d/%d/%d/%s", core.GeneratorVersion, p.Seed, p.UsersCount, p.HistoryMonths, asof.Format(time.RFC3339)))
+	_ = snapshot.Dataset.SetConfig(fmt.Sprintf("%s/%d/%d/%d/%s", core.GeneratorVersion, p.Seed, p.UsersCount, p.HistoryMonths, asof.Format(time.RFC3339Nano)))
 	report, e := snapshot.Dashboard(q)
 	if e != nil {
 		write(w, http.StatusBadRequest, map[string]any{"error": e.Error(), "data_as_of": asof})
+		return
+	}
+	histories, e := previewUserHistories(dataset, snapshot, report.Users.Items)
+	if e != nil {
+		write(w, http.StatusInternalServerError, map[string]any{"error": "cannot generate user histories", "data_as_of": asof})
 		return
 	}
 	if r.Context().Err() != nil {
 		return
 	}
 	report.Mode = "preview"
-	write(w, http.StatusOK, report)
+	write(w, http.StatusOK, struct {
+		core.Dashboard
+		UserHistories map[string]userHistory `json:"user_histories"`
+	}{Dashboard: report, UserHistories: histories})
 }

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { webcrypto } from 'node:crypto';
 import {
@@ -266,7 +267,21 @@ describe("UsersPage", () => {
         />
       );
     }
-    const { container } = render(<Harness />);
+    const fetchHistory = vi.fn(async () => Response.json({
+      user_id: firstId,
+      telegram_id: 7400000001,
+      first_plan_id: "monthly",
+      ltv: 99000,
+      payments_count: 1,
+      current_status: "active",
+      currency: "RUB",
+      data_as_of: report.data_as_of,
+      subscriptions: report.dataset.samples.subscriptions,
+      payments: [{ ...report.dataset.samples.payments[0], amount_rub_minor: 99000 }],
+    }));
+    vi.stubGlobal("fetch", fetchHistory);
+    const client = new QueryClient();
+    const { container } = render(<QueryClientProvider client={client}><Harness /></QueryClientProvider>);
     await user.type(screen.getByLabelText("Поиск пользователей"), "7400");
     expect(onSearch).toHaveBeenLastCalledWith("7400");
     expect(screen.getByLabelText("Поиск пользователей")).toHaveValue("7400");
@@ -291,7 +306,12 @@ describe("UsersPage", () => {
     const dialog = screen.getByRole("dialog");
     expect(within(dialog).getByText(firstId)).toBeInTheDocument();
     expect(within(dialog).getByText("7400000001")).toBeInTheDocument();
-    expect(within(dialog).getByText("990,00 ₽")).toBeInTheDocument();
+    expect(await within(dialog).findByText("Покупка")).toBeInTheDocument();
+    expect(within(dialog).getAllByText("990,00 ₽")).toHaveLength(2);
+    expect(fetchHistory).toHaveBeenCalledWith(
+      "/api/users/by-telegram/7400000001/history?snapshot_id=1",
+      expect.objectContaining({ cache: "no-store" }),
+    );
     await user.keyboard("{Escape}");
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });

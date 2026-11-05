@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"math/rand/v2"
 	"net/http"
 	"strconv"
@@ -19,8 +20,12 @@ func fetch(ctx context.Context, url string, since *time.Time) ([]json.RawMessage
 }
 
 func fetchObserved(ctx context.Context, url string, since *time.Time, obs *observability, source string) ([]json.RawMessage, error) {
+	timeout, attempts, err := sourceClientConfig()
+	if err != nil {
+		return nil, err
+	}
 	items := []json.RawMessage{}
-	client := &http.Client{Timeout: duration("HTTP_REQUEST_TIMEOUT", "5s")}
+	client := &http.Client{Timeout: timeout}
 	if obs != nil {
 		client.Transport = observedTransport{source: source, metrics: obs}
 	}
@@ -30,10 +35,6 @@ func fetchObserved(ctx context.Context, url string, since *time.Time, obs *obser
 			More  *bool              `json:"has_more"`
 		}
 		var last error
-		attempts := integer("RETRY_ATTEMPTS", "4")
-		if attempts < 1 || attempts > 10 {
-			return nil, fmt.Errorf("invalid RETRY_ATTEMPTS")
-		}
 		for attempt := 0; attempt < attempts; attempt++ {
 			req, e := http.NewRequestWithContext(ctx, "GET", url, nil)
 			if e != nil {
@@ -84,8 +85,8 @@ func fetchObserved(ctx context.Context, url string, since *time.Time, obs *obser
 					break
 				}
 				last = fmt.Errorf("source status %d", resp.StatusCode)
-				if v, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && v > 0 {
-					wait = time.Duration(v) * time.Second
+				if v, err := strconv.ParseInt(resp.Header.Get("Retry-After"), 10, 64); err == nil && v > 0 {
+					wait = time.Duration(min(v, math.MaxInt64/int64(time.Second))) * time.Second
 				} else if t, err := http.ParseTime(resp.Header.Get("Retry-After")); err == nil && time.Until(t) > 0 {
 					wait = time.Until(t)
 				}

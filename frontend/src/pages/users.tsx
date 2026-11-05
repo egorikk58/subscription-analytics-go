@@ -1,18 +1,12 @@
 import { useState } from "react";
 import { TelegramLookup } from '@/components/telegram-lookup';
-import { ArrowDownLeft, ArrowLeft, ArrowRight, Search } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, Search } from "lucide-react";
 import { Panel } from "@/components/analytics/panel";
 import { PlanName } from "@/components/dataset-samples";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { UserHistoryDialog, type UserDetails } from "@/components/user-history-dialog";
 import { Input } from "@/components/ui/input";
 import {
   NativeSelect,
@@ -52,7 +46,16 @@ export function UsersPage({
   selectedIds,
   onSelectionChange,
 }: UsersPageProps) {
-  const [detail, setDetail] = useState<UserRow | null>(null);
+  const [detail, setDetail] = useState<(UserDetails & { trigger: HTMLButtonElement }) | null>(null);
+  const openDetail = (user: UserRow, trigger: HTMLButtonElement) => {
+    setDetail({
+      user,
+      trigger,
+      mode: report.mode,
+      snapshotID: report.snapshot_id,
+      previewHistory: report.user_histories?.[user.id],
+    });
+  };
   const data = report.users;
   const checkedCount = data.items.filter((user) =>
     selectedIds.has(user.id),
@@ -154,9 +157,6 @@ export function UsersPage({
                 <TableHead className="text-right font-normal">
                   Пожизненный LTV
                 </TableHead>
-                <TableHead className="w-12">
-                  <span className="sr-only">Подробнее</span>
-                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -176,13 +176,19 @@ export function UsersPage({
                       }
                     />
                   </TableCell>
-                  <TableCell className="py-3">
-                    <span className="font-mono text-xs" title={user.id}>
-                      {user.id.slice(0, 8)}…{user.id.slice(-4)}
-                    </span>
-                    <p className="mt-1 text-xs text-muted-foreground">
-                      Telegram {user.telegram_id}
-                    </p>
+                  <TableCell className="py-2">
+                    <Button
+                      variant="ghost"
+                      className="h-auto flex-col items-start gap-1 px-2 py-1.5 text-left"
+                      aria-label={`Подробности пользователя ${user.id}`}
+                      onClick={event => openDetail(user, event.currentTarget)}
+                    >
+                      <span className="flex items-center gap-1.5 font-mono text-xs" title={user.id}>
+                        {user.id.slice(0, 8)}…{user.id.slice(-4)}
+                        <ArrowUpRight aria-hidden="true" className="size-3.5 text-muted-foreground" />
+                      </span>
+                      <span className="text-xs font-normal text-muted-foreground">Telegram {user.telegram_id}</span>
+                    </Button>
                   </TableCell>
                   <TableCell className="text-[13px]">
                     {date(user.first_subscription_at)}
@@ -190,18 +196,8 @@ export function UsersPage({
                   <TableCell className="text-[13px]">
                     <PlanName planId={user.first_plan_id} />
                   </TableCell>
-                  <TableCell className="text-right text-[13px] font-medium tabular-nums">
+                  <TableCell className="pr-5 text-right text-[13px] font-medium tabular-nums">
                     {money(user.ltv_minor, 2)}
-                  </TableCell>
-                  <TableCell className="pr-5">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Подробности пользователя ${user.id}`}
-                      onClick={() => setDetail(user)}
-                    >
-                      <ArrowDownLeft className="size-4 rotate-180" />
-                    </Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -239,7 +235,7 @@ export function UsersPage({
               <Button
                 variant="ghost"
                 className="h-auto min-w-0 flex-col items-start gap-1 px-0 py-1 text-left hover:bg-transparent"
-                onClick={() => setDetail(user)}
+                onClick={event => openDetail(user, event.currentTarget)}
                 aria-label={`Подробности пользователя ${user.id}`}
               >
                 <span className="font-mono text-xs">
@@ -301,43 +297,7 @@ export function UsersPage({
           </div>
         </div>
       </Panel>
-      <Dialog
-        open={detail !== null}
-        onOpenChange={(open) => {
-          if (!open) setDetail(null);
-        }}
-      >
-        <DialogContent className="max-h-[85dvh] overflow-auto">
-          <DialogHeader>
-            <DialogTitle>Пользователь</DialogTitle>
-            <DialogDescription className="break-all font-mono text-xs">
-              {detail?.id}
-            </DialogDescription>
-          </DialogHeader>
-          {detail && (
-            <dl className="grid gap-4 text-sm">
-              {[
-                ["Telegram ID", String(detail.telegram_id)],
-                ["Первая подписка", date(detail.first_subscription_at)],
-                [
-                  "Первый тариф",
-                  <PlanName key="plan" planId={detail.first_plan_id} />,
-                ],
-                ["Пожизненный LTV", money(detail.ltv_minor, 2)],
-                ["UTM", detail.utm_link || "—"],
-              ].map(([label, value]) => (
-                <div
-                  key={String(label)}
-                  className="grid grid-cols-[135px_1fr] gap-3"
-                >
-                  <dt className="text-muted-foreground">{label}</dt>
-                  <dd className="break-all">{value}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
-        </DialogContent>
-      </Dialog>
+      {detail && <UserHistoryDialog detail={detail} onClose={() => setDetail(null)} trigger={detail.trigger}/>}
     </>
   );
 }

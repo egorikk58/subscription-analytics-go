@@ -78,6 +78,14 @@ type Snapshot struct {
 	Facts         []Fact           `json:"facts"`
 	Dataset       DatasetInfo      `json:"dataset"`
 }
+
+func (s Snapshot) observationEnd() time.Time {
+	if s.Dataset.ObservedThrough != nil {
+		return *s.Dataset.ObservedThrough
+	}
+	return s.DataAsOf
+}
+
 type Filter struct {
 	UTMLink        *string
 	Page, PageSize int
@@ -354,32 +362,7 @@ func (s Snapshot) Response(route string, q Filter) ([]byte, error) {
 			}
 		}
 	}
-	rows := []any{}
-	for n := 1; n <= q.Periods; n++ {
-		eligible, renewed, mature := 0, 0, 0
-		for _, c := range chains {
-			if Boundary(c.Start, n*c.Months).After(s.DataAsOf) {
-				continue
-			}
-			mature++
-			if c.Paid >= n {
-				eligible++
-				if c.Paid >= n+1 {
-					renewed++
-				}
-			}
-		}
-		var rate, cumulative *float64
-		if eligible > 0 {
-			v := float64(renewed) / float64(eligible)
-			rate = &v
-		}
-		if mature > 0 {
-			v := float64(renewed) / float64(mature)
-			cumulative = &v
-		}
-		rows = append(rows, map[string]any{"period": n, "eligible": eligible, "renewed": renewed, "cumulative_eligible": mature, "rate": rate, "cumulative_rate": cumulative})
-	}
+	rows := retain(chains, s.observationEnd(), q.Periods)
 	return json.Marshal(map[string]any{"plan_id": q.Plan, "data_as_of": s.DataAsOf, "cohort_size": len(chains), "periods": rows})
 }
 func summary(facts []Fact) (map[string]any, error) {

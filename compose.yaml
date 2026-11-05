@@ -11,7 +11,7 @@ services:
       - postgres-data:/var/lib/postgresql
     networks: [backend]
     healthcheck:
-      test: [CMD-SHELL, 'pg_isready -U postgres -d "$${POSTGRES_DB}"']
+      test: [CMD-SHELL, 'pg_isready -h 127.0.0.1 -U postgres -d "$${POSTGRES_DB}"']
       interval: 5s
       timeout: 3s
       retries: 20
@@ -59,9 +59,9 @@ services:
     environment:
       PORT: "8080"
       DATABASE_URL: postgres://users_reader:${USERS_PASSWORD:?Set USERS_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-subscription_analytics}?sslmode=disable
-      MOCK_DELAY: ${MOCK_DELAY:-50ms}
-      MOCK_500_BPS: ${MOCK_500_BPS:-100}
-      MOCK_429_BPS: ${MOCK_429_BPS:-100}
+      MOCK_DELAY: ${USERS_MOCK_DELAY:-${MOCK_DELAY:-50ms}}
+      MOCK_500_BPS: ${USERS_MOCK_500_BPS:-${MOCK_500_BPS:-100}}
+      MOCK_429_BPS: ${USERS_MOCK_429_BPS:-${MOCK_429_BPS:-100}}
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -81,9 +81,9 @@ services:
     environment:
       PORT: "8080"
       DATABASE_URL: postgres://subscriptions_reader:${SUBSCRIPTIONS_PASSWORD:?Set SUBSCRIPTIONS_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-subscription_analytics}?sslmode=disable
-      MOCK_DELAY: ${MOCK_DELAY:-50ms}
-      MOCK_500_BPS: ${MOCK_500_BPS:-100}
-      MOCK_429_BPS: ${MOCK_429_BPS:-100}
+      MOCK_DELAY: ${SUBSCRIPTIONS_MOCK_DELAY:-${MOCK_DELAY:-50ms}}
+      MOCK_500_BPS: ${SUBSCRIPTIONS_MOCK_500_BPS:-${MOCK_500_BPS:-100}}
+      MOCK_429_BPS: ${SUBSCRIPTIONS_MOCK_429_BPS:-${MOCK_429_BPS:-100}}
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -103,9 +103,9 @@ services:
     environment:
       PORT: "8080"
       DATABASE_URL: postgres://payments_reader:${PAYMENTS_PASSWORD:?Set PAYMENTS_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-subscription_analytics}?sslmode=disable
-      MOCK_DELAY: ${MOCK_DELAY:-50ms}
-      MOCK_500_BPS: ${MOCK_500_BPS:-100}
-      MOCK_429_BPS: ${MOCK_429_BPS:-100}
+      MOCK_DELAY: ${PAYMENTS_MOCK_DELAY:-${MOCK_DELAY:-50ms}}
+      MOCK_500_BPS: ${PAYMENTS_MOCK_500_BPS:-${MOCK_500_BPS:-100}}
+      MOCK_429_BPS: ${PAYMENTS_MOCK_429_BPS:-${MOCK_429_BPS:-100}}
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -137,7 +137,7 @@ services:
       HTTP_REQUEST_TIMEOUT: ${HTTP_REQUEST_TIMEOUT:-5s}
       RETRY_ATTEMPTS: ${RETRY_ATTEMPTS:-4}
     ports:
-      - "${ANALYTICS_PORT:-8080}:8080"
+      - "${ANALYTICS_PORT:-127.0.0.1:8080}:8080"
     depends_on:
       postgres:
         condition: service_healthy

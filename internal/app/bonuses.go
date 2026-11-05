@@ -40,59 +40,24 @@ func utmParameter(r *http.Request) (*string, error) {
 	return &value, nil
 }
 
-// Reusable persistent response cache for the indexed lookup. The body also
-// represents a negative lookup, so both 200 and 404 survive Redis failure.
-func (s *service) cachedBonus(ctx context.Context, id int64, key string, build func() ([]byte, error)) ([]byte, error) {
-	redisKey := fmt.Sprintf("snapshot:%d:%s", id, key)
-	value, err, _ := s.flight.Do(redisKey, func() (any, error) {
-		rctx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
-		body, cacheErr := s.redis.Get(rctx, redisKey).Bytes()
-		cancel()
-		s.obs.cacheResult("redis", cacheErr)
-		if cacheErr == nil {
-			return body, nil
-		}
-		cacheErr = s.db.QueryRow(ctx, "SELECT body FROM analytics.responses WHERE snapshot_id=$1 AND key=$2", id, key).Scan(&body)
-		s.obs.cacheResult("postgres", cacheErr)
-		if errors.Is(cacheErr, pgx.ErrNoRows) {
-			defer s.obs.buildStarted()()
-			body, cacheErr = build()
-			if cacheErr == nil {
-				_, cacheErr = s.db.Exec(ctx, "INSERT INTO analytics.responses VALUES($1,$2,$3) ON CONFLICT DO NOTHING", id, key, body)
-			}
-		}
-		if cacheErr != nil {
-			return nil, cacheErr
-		}
-		rctx, cancel = context.WithTimeout(ctx, 200*time.Millisecond)
-		_ = s.redis.Set(rctx, redisKey, body, 0).Err()
-		cancel()
-		return body, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	return value.([]byte), nil
-}
-
 func (s *service) telegramLTV(w http.ResponseWriter, r *http.Request) {
-	id, err := parseTelegram(r.PathValue("telegram_id"))
-	if err != nil {
-		write(w, 400, map[string]any{"error": err.Error(), "data_as_of": nil})
-		return
-	}
 	var version *int64
 	var asof *time.Time
 	var format *string
-	err = s.db.QueryRow(r.Context(), "SELECT current_id,(SELECT data_as_of FROM analytics.snapshots WHERE id=current_id),(SELECT data->>'format_version' FROM analytics.snapshots WHERE id=current_id) FROM analytics.state WHERE id=1").Scan(&version, &asof, &format)
-	if err != nil || version == nil || format == nil || *format != "2" {
+	snapshotErr := s.db.QueryRow(r.Context(), "SELECT current_id,(SELECT data_as_of FROM analytics.snapshots WHERE id=current_id),(SELECT data->>'format_version' FROM analytics.snapshots WHERE id=current_id) FROM analytics.state WHERE id=1").Scan(&version, &asof, &format)
+	id, err := parseTelegram(r.PathValue("telegram_id"))
+	if err != nil {
+		write(w, 400, map[string]any{"error": err.Error(), "data_as_of": asof})
+		return
+	}
+	if snapshotErr != nil || version == nil || format == nil || *format != "2" {
 		w.Header().Set("Retry-After", "5")
 		write(w, 503, map[string]any{"error": "snapshot unavailable", "data_as_of": nil})
 		return
 	}
-	body, err := s.cachedBonus(r.Context(), *version, cacheKey("telegram:"+strconv.FormatInt(id, 10), core.Filter{}), func() ([]byte, error) {
+	body, err := s.cachedResponse(r.Context(), *version, cacheKey("telegram:"+strconv.FormatInt(id, 10), core.Filter{}), func(ctx context.Context) ([]byte, error) {
 		var body []byte
-		err := s.db.QueryRow(r.Context(), "SELECT body FROM analytics.user_ltv WHERE snapshot_id=$1 AND telegram_id=$2", *version, id).Scan(&body)
+		err := s.db.QueryRow(ctx, "SELECT body FROM analytics.user_ltv WHERE snapshot_id=$1 AND telegram_id=$2", *version, id).Scan(&body)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return json.Marshal(map[string]any{"error": "user not found", "data_as_of": asof})
 		}

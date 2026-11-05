@@ -1,4 +1,4 @@
-import type { Dashboard, DashboardParams, DataSource, SeedConfig, ServiceStatus } from '@/types'
+import type { Dashboard, DashboardParams, DataSource, SeedConfig, ServiceStatus, UserHistory } from '@/types'
 
 export const defaultFilters = { from: '', to: '', plan_id: 'all', selection: 'first_plan', utm_link: '' } as const
 export const defaultParams: DashboardParams = { ...defaultFilters, page: 1, search: '', sort: 'ltv_desc' }
@@ -40,3 +40,7 @@ export function fetchPreview(config: SeedConfig, params: DashboardParams, signal
   })
 }
 export const fetchStatus = (signal?: AbortSignal) => readJSON<ServiceStatus>('/status', { signal })
+export function fetchUserHistory(telegramID: number, snapshotID: number | null, signal?: AbortSignal): Promise<UserHistory> {
+  const query = snapshotID === null ? '' : `?snapshot_id=${snapshotID}`
+  return readJSON<UserHistory>(`/api/users/by-telegram/${telegramID}/history${query}`, { signal })
+}

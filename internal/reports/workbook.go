@@ -7,6 +7,7 @@ import (
 	"math/big"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/xuri/excelize/v2"
@@ -118,6 +119,10 @@ func (b *builder) check(err error) {
 }
 func cell(col, row int) string { name, _ := excelize.CoordinatesToCellName(col, row); return name }
 func (b *builder) value(sheet, address string, value any) {
+	if number, ok := value.(excelDecimal); ok {
+		b.check(b.f.SetCellDefault(sheet, address, string(number)))
+		return
+	}
 	b.check(b.f.SetCellValue(sheet, address, value))
 }
 func (b *builder) styled(value any, style int) excelize.Cell {
@@ -148,14 +153,60 @@ func utmName(value string) string {
 	}
 	return value
 }
-func asRUB(value any) float64 {
-	r, ok := new(big.Rat).SetString(fmt.Sprint(value))
+
+type excelDecimal string
+
+func trimFraction(amount string) string {
+	return strings.TrimSuffix(strings.TrimRight(amount, "0"), ".")
+}
+
+// Excel preserves at most 15 significant decimal digits in numeric cells.
+// Conservatively count all integer digits after the first nonzero digit.
+func excelSafeDecimal(amount string) bool {
+	digits := strings.ReplaceAll(strings.TrimPrefix(amount, "-"), ".", "")
+	return len(strings.TrimLeft(digits, "0")) <= 15
+}
+
+func (b *builder) rubles(minor any) excelize.Cell {
+	r, ok := new(big.Rat).SetString(fmt.Sprint(minor))
 	if !ok {
-		return 0
+		b.check(fmt.Errorf("invalid report money value: %v", minor))
+		return excelize.Cell{}
 	}
+	// The summary returns at most two fractional digits in minor units.
 	r.Quo(r, big.NewRat(100, 1))
-	f, _ := r.Float64()
-	return f
+	amount := trimFraction(r.FloatString(4))
+	if excelSafeDecimal(amount) {
+		return b.styled(excelDecimal(amount), b.money)
+	}
+	return b.styled(amount, b.money)
+}
+
+func (b *builder) userMoney(minor int64, row int) (excelize.Cell, excelize.Cell) {
+	minorText := strconv.FormatInt(minor, 10)
+	amount := trimFraction(new(big.Rat).SetFrac64(minor, 100).FloatString(2))
+	if excelSafeDecimal(minorText) {
+		// StreamWriter accepts a float for fractional numeric formula caches.
+		// Use it only when the serialized decimal is identical to the exact amount.
+		cached, err := strconv.ParseFloat(amount, 64)
+		if err == nil && strconv.FormatFloat(cached, 'f', -1, 64) == amount {
+			return b.styled(minor, b.count), b.formula(fmt.Sprintf("I%d/100", row), cached, b.money)
+		}
+	}
+	return b.styled(minorText, b.count), b.styled(amount, b.money)
+}
+
+func chartableMoney(rows [][]any, column int) bool {
+	for _, row := range rows {
+		value, ok := row[column].(excelize.Cell)
+		if !ok {
+			return false
+		}
+		if _, ok := value.Value.(excelDecimal); !ok {
+			return false
+		}
+	}
+	return len(rows) > 0
 }
 func countValue(value any) int { n, _ := strconv.Atoi(fmt.Sprint(value)); return n }
 func bound(value *time.Time, fallback string) string {
@@ -196,6 +247,7 @@ func contextLines(d core.Dashboard, opt Options) []string {
 		fmt.Sprintf("%s. %s. %s. Поиск: %s.", plan, selection, utm, search),
 		fmt.Sprintf("В выгрузке %d пользователей. Выбрано по ID: %d. Выручка и LTV — за всю жизнь, после возвратов, в RUB.", countValue(d.Summary["users_count"]), len(opt.UserIDs)),
 		fmt.Sprintf("История: %d мес. Граница данных: %s. Fingerprint: %s.", d.Dataset.HistoryMonths, bound(d.Dataset.DatasetAsOf, "не задана"), d.Dataset.Fingerprint),
+		"Суммы за пределами числовой точности Excel сохраняются текстом. Графики для таких рядов не строятся.",
 	}
 }
 
@@ -262,8 +314,8 @@ func (b *builder) analytics(d core.Dashboard, opt Options, facts []core.Fact) {
 		payments += fact.PaymentsCount
 	}
 	metrics := [][]any{
-		{"Пользователей", b.styled(len(facts), b.count)}, {"Выручка после возвратов", b.styled(asRUB(d.Summary["total_revenue_minor"]), b.money)},
-		{"Средний LTV", b.styled(asRUB(d.Summary["mean_ltv_minor"]), b.money)}, {"Медианный LTV", b.styled(asRUB(d.Summary["median_ltv_minor"]), b.money)},
+		{"Пользователей", b.styled(len(facts), b.count)}, {"Выручка после возвратов", b.rubles(d.Summary["total_revenue_minor"])},
+		{"Средний LTV", b.rubles(d.Summary["mean_ltv_minor"])}, {"Медианный LTV", b.rubles(d.Summary["median_ltv_minor"])},
 		{"С успешными оплатами", b.styled(paid, b.count)}, {"Без успешных оплат", b.styled(len(facts)-paid, b.count)}, {"Активных подписчиков", b.styled(active, b.count)}, {"Успешных оплат", b.styled(payments, b.count)},
 	}
 	b.table("Сводка", "SummaryMetrics", 9, []string{"Показатель", "Значение"}, metrics, []float64{34, 23})
@@ -277,7 +329,7 @@ func (b *builder) analytics(d core.Dashboard, opt Options, facts []core.Fact) {
 		b.check(b.f.SetCellStyle("Сводка", address, address, b.note))
 	}
 	groupHeaders := []string{"Тариф", "Пользователей", "Выручка, ₽", "Средний LTV, ₽", "Медианный LTV, ₽", "Доля выручки"}
-	total := asRUB(d.Summary["total_revenue_minor"])
+	total := d.Summary["total_revenue_minor"].(int64)
 	groupRows := func(groups []map[string]any, key string) [][]any {
 		rows := make([][]any, 0, len(groups))
 		for _, group := range groups {
@@ -287,12 +339,13 @@ func (b *builder) analytics(d core.Dashboard, opt Options, facts []core.Fact) {
 			} else {
 				label = utmName(label)
 			}
-			revenue := asRUB(group["total_revenue_minor"])
+			revenue := group["total_revenue_minor"].(int64)
 			var share any
 			if total != 0 {
-				share = revenue / total
+				rate, _ := new(big.Rat).SetFrac64(revenue, total).Float64()
+				share = rate
 			}
-			rows = append(rows, []any{label, b.styled(group["users_count"], b.count), b.styled(revenue, b.money), b.styled(asRUB(group["mean_ltv_minor"]), b.money), b.styled(asRUB(group["median_ltv_minor"]), b.money), b.styled(share, b.rate)})
+			rows = append(rows, []any{label, b.styled(group["users_count"], b.count), b.rubles(revenue), b.rubles(group["mean_ltv_minor"]), b.rubles(group["median_ltv_minor"]), b.styled(share, b.rate)})
 		}
 		return rows
 	}
@@ -305,30 +358,31 @@ func (b *builder) analytics(d core.Dashboard, opt Options, facts []core.Fact) {
 		}
 	}
 	if len(without) > 0 {
-		planRows = append(planRows, []any{"Без подписки", b.styled(len(without), b.count), b.styled(0, b.money), b.styled(0, b.money), b.styled(0, b.money), b.styled(0, b.rate)})
+		planRows = append(planRows, []any{"Без подписки", b.styled(len(without), b.count), b.rubles(0), b.rubles(0), b.rubles(0), b.styled(0, b.rate)})
 	}
 	b.table("Тарифы", "PlanMetrics", 9, groupHeaders, planRows, []float64{23, 19, 24, 23, 23, 20})
 	b.setup("Каналы", "LTV по каналам привлечения", d, opt)
 	utmHeaders := append([]string(nil), groupHeaders...)
 	utmHeaders[0] = "UTM-источник"
-	b.table("Каналы", "ChannelMetrics", 9, utmHeaders, groupRows(d.UTMs, "utm_link"), []float64{28, 19, 24, 23, 23, 20})
+	utmRows := groupRows(d.UTMs, "utm_link")
+	b.table("Каналы", "ChannelMetrics", 9, utmHeaders, utmRows, []float64{28, 19, 24, 23, 23, 20})
 	b.setup("По месяцам", "Когорты по месяцу первой подписки", d, opt)
 	monthRows := make([][]any, 0, len(d.Timeline))
 	for _, row := range d.Timeline {
 		month, _ := time.Parse("2006-01", fmt.Sprint(row["month"]))
-		monthRows = append(monthRows, []any{b.styled(month, b.date), b.styled(row["users_count"], b.count), b.styled(asRUB(row["total_revenue_minor"]), b.money), b.styled(asRUB(row["mean_ltv_minor"]), b.money), b.styled(asRUB(row["median_ltv_minor"]), b.money)})
+		monthRows = append(monthRows, []any{b.styled(month, b.date), b.styled(row["users_count"], b.count), b.rubles(row["total_revenue_minor"]), b.rubles(row["mean_ltv_minor"]), b.rubles(row["median_ltv_minor"])})
 	}
 	b.table("По месяцам", "MonthlyCohorts", 9, []string{"Месяц первой подписки", "Пользователей", "Lifetime-выручка, ₽", "Средний LTV, ₽", "Медианный LTV, ₽"}, monthRows, []float64{27, 19, 25, 23, 23})
 	b.retention(d, opt)
 	b.cohorts(d, opt)
-	if len(facts) > 0 {
+	if len(facts) > 0 && chartableMoney(planRows, 2) {
 		b.chart("Сводка", "F9", "Выручка по первому тарифу, ₽", excelize.Col, []excelize.ChartSeries{{Name: "'Тарифы'!$D$9", Categories: fmt.Sprintf("'Тарифы'!$B$10:$B$%d", 9+len(planRows)), Values: fmt.Sprintf("'Тарифы'!$D$10:$D$%d", 9+len(planRows)), Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"527E6B"}}}}, false)
-		if len(monthRows) > 0 {
-			b.chart("Сводка", "B29", "Средний LTV по месяцу первой подписки, ₽", excelize.Line, []excelize.ChartSeries{{Name: "'По месяцам'!$E$9", Categories: fmt.Sprintf("'По месяцам'!$B$10:$B$%d", 9+len(monthRows)), Values: fmt.Sprintf("'По месяцам'!$E$10:$E$%d", 9+len(monthRows)), Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"527E6B"}}, Line: excelize.ChartLine{Width: 2}}}, false)
-		}
-		if len(d.UTMs) > 0 {
-			b.chart("Каналы", cell(2, max(20, len(d.UTMs)+13)), "Выручка по каналам, ₽", excelize.Bar, []excelize.ChartSeries{{Name: "'Каналы'!$D$9", Categories: fmt.Sprintf("'Каналы'!$B$10:$B$%d", 9+len(d.UTMs)), Values: fmt.Sprintf("'Каналы'!$D$10:$D$%d", 9+len(d.UTMs)), Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"527E6B"}}}}, false)
-		}
+	}
+	if chartableMoney(monthRows, 3) {
+		b.chart("Сводка", "B29", "Средний LTV по месяцу первой подписки, ₽", excelize.Line, []excelize.ChartSeries{{Name: "'По месяцам'!$E$9", Categories: fmt.Sprintf("'По месяцам'!$B$10:$B$%d", 9+len(monthRows)), Values: fmt.Sprintf("'По месяцам'!$E$10:$E$%d", 9+len(monthRows)), Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"527E6B"}}, Line: excelize.ChartLine{Width: 2}}}, false)
+	}
+	if chartableMoney(utmRows, 2) {
+		b.chart("Каналы", cell(2, max(20, len(utmRows)+13)), "Выручка по каналам, ₽", excelize.Bar, []excelize.ChartSeries{{Name: "'Каналы'!$D$9", Categories: fmt.Sprintf("'Каналы'!$B$10:$B$%d", 9+len(utmRows)), Values: fmt.Sprintf("'Каналы'!$D$10:$D$%d", 9+len(utmRows)), Fill: excelize.Fill{Type: "pattern", Pattern: 1, Color: []string{"527E6B"}}}}, false)
 	}
 }
 
@@ -465,7 +519,8 @@ func (b *builder) users(ctx context.Context, d core.Dashboard, opt Options, fact
 		if fact.First == nil {
 			status = "Без подписки"
 		}
-		values := []any{b.styled(fact.ID, b.body), b.styled(strconv.FormatInt(fact.TelegramID, 10), b.body), b.styled(first, b.date), b.styled(planName(fact.FirstPlan), b.body), b.styled(utmName(fact.UTMLink), b.body), b.styled(status, b.body), b.styled(fact.PaymentsCount, b.count), b.styled(fact.LTV, b.count), b.formula(fmt.Sprintf("I%d/100", n), asRUB(fact.LTV), b.money)}
+		minor, amount := b.userMoney(fact.LTV, n)
+		values := []any{b.styled(fact.ID, b.body), b.styled(strconv.FormatInt(fact.TelegramID, 10), b.body), b.styled(first, b.date), b.styled(planName(fact.FirstPlan), b.body), b.styled(utmName(fact.UTMLink), b.body), b.styled(status, b.body), b.styled(fact.PaymentsCount, b.count), minor, amount}
 		b.check(sw.SetRow(cell(2, n), values, excelize.RowOpts{Height: 20}))
 	}
 	if len(facts) > 0 {

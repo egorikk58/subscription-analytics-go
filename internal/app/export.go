@@ -106,7 +106,7 @@ func (s *service) exportWorkbook(w http.ResponseWriter, r *http.Request) {
 		}
 		snapshot, err = core.Prepare(core.Generate(p.Seed, p.UsersCount, p.HistoryMonths, asof), asof)
 		if err == nil {
-			err = snapshot.Dataset.SetConfig(fmt.Sprintf("%s/%d/%d/%d/%s", core.GeneratorVersion, p.Seed, p.UsersCount, p.HistoryMonths, asof.Format(time.RFC3339)))
+			err = snapshot.Dataset.SetConfig(fmt.Sprintf("%s/%d/%d/%d/%s", core.GeneratorVersion, p.Seed, p.UsersCount, p.HistoryMonths, asof.Format(time.RFC3339Nano)))
 		}
 		if err != nil {
 			write(w, 500, map[string]any{"error": "cannot prepare export", "data_as_of": nil})

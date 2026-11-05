@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 	"testing"
@@ -172,5 +173,83 @@ func TestUsersWorkbookAndCancellation(t *testing.T) {
 	cancel()
 	if _, err := Build(ctx, reportFixture(), Options{Kind: "analytics"}); !errors.Is(err, context.Canceled) {
 		t.Fatal("cancelled export must stop", err)
+	}
+}
+
+func TestWorkbookPreservesMoneyAtExcelPrecisionBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		minor  int64
+		rubles string
+		text   bool
+		charts int
+	}{
+		{"kopeck", 1, "0.01", false, 4},
+		{"negative_kopeck", -1, "-0.01", false, 4},
+		{"fifteen_digits", 999_999_999_999_999, "9999999999999.99", false, 4},
+		{"sixteen_digits", 1_000_000_000_000_001, "10000000000000.01", true, 1},
+		{"max_int64", math.MaxInt64, "92233720368547758.07", true, 1},
+		{"min_int64", math.MinInt64, "-92233720368547758.08", true, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := reportFixture()
+			s.Facts = s.Facts[:1]
+			s.Facts[0].LTV = tc.minor
+			f, data := openReport(t, s, Options{Kind: "analytics"})
+			for _, item := range []struct{ sheet, address, want string }{
+				{"Сводка", "C11", tc.rubles}, {"Сводка", "C12", tc.rubles}, {"Сводка", "C13", tc.rubles},
+				{"Тарифы", "D10", tc.rubles}, {"Каналы", "D10", tc.rubles}, {"По месяцам", "D10", tc.rubles},
+				{"Пользователи", "I10", strconv.FormatInt(tc.minor, 10)}, {"Пользователи", "J10", tc.rubles},
+			} {
+				if got := raw(t, f, item.sheet, item.address); got != item.want {
+					t.Errorf("%s!%s = %s, want %s", item.sheet, item.address, got, item.want)
+				}
+				typ, err := f.GetCellType(item.sheet, item.address)
+				isText := typ == excelize.CellTypeSharedString || typ == excelize.CellTypeInlineString
+				if err != nil || isText != tc.text {
+					t.Errorf("%s!%s type = %v, want text: %v, error: %v", item.sheet, item.address, typ, tc.text, err)
+				}
+			}
+			wantFormula := "I10/100"
+			if tc.text {
+				wantFormula = ""
+			}
+			if formula, err := f.GetCellFormula("Пользователи", "J10"); err != nil || formula != wantFormula {
+				t.Errorf("LTV formula = %q, want %q, error: %v", formula, wantFormula, err)
+			}
+			archive, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			charts := 0
+			for _, file := range archive.File {
+				if strings.HasPrefix(file.Name, "xl/charts/chart") && strings.HasSuffix(file.Name, ".xml") {
+					charts++
+				}
+			}
+			if charts != tc.charts {
+				t.Errorf("got %d charts, want %d", charts, tc.charts)
+			}
+		})
+	}
+}
+
+func TestWorkbookPreservesFractionalMinorUnitsInSummary(t *testing.T) {
+	for _, tc := range []struct {
+		value int64
+		want  string
+	}{
+		{3, "0.015"},
+		{math.MaxInt64, "46116860184273879.035"},
+	} {
+		s := reportFixture()
+		s.Facts = s.Facts[:2]
+		s.Facts[0].LTV, s.Facts[1].LTV = tc.value, 0
+		f, _ := openReport(t, s, Options{Kind: "analytics"})
+		for _, address := range []string{"C12", "C13"} {
+			if got := raw(t, f, "Сводка", address); got != tc.want {
+				t.Errorf("value %d: %s = %s, want %s", tc.value, address, got, tc.want)
+			}
+		}
 	}
 }

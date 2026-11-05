@@ -211,6 +211,9 @@ func metricRoute(path string) string {
 	if strings.HasPrefix(path, "/users/by-telegram/") && strings.HasSuffix(path, "/ltv") {
 		return "/users/by-telegram/{telegram_id}/ltv"
 	}
+	if strings.HasPrefix(path, "/api/users/by-telegram/") && strings.HasSuffix(path, "/history") {
+		return "/api/users/by-telegram/{telegram_id}/history"
+	}
 	for _, prefix := range []string{"/assets/", "/fonts/", "/docs/", "/grafana/", "/db/", "/prometheus/"} {
 		if strings.HasPrefix(path, prefix) {
 			return prefix + "*"

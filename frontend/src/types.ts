@@ -38,6 +38,18 @@ export interface SourcePayment {
   status: 'succeeded' | 'failed' | 'refunded'; period_start: string; period_end: string
   created_at: string; updated_at: string; refund_of_payment_id?: string
 }
+export interface UserHistory {
+  user_id: string
+  telegram_id: number
+  first_plan_id: PlanId | null
+  ltv: number
+  payments_count: number
+  current_status: string
+  currency: string
+  data_as_of: string
+  subscriptions: SourceSubscription[]
+  payments: (SourcePayment & { amount_rub_minor: number })[]
+}
 export interface DatasetSamples { users: SourceUser[]; subscriptions: SourceSubscription[]; payments: SourcePayment[] }
 export interface DatasetInfo {
 	currencies?: Record<string, number>
@@ -52,6 +64,7 @@ export interface Dashboard {
   data_as_of: string; snapshot_id: number | null; mode: 'live' | 'preview'; selection: Selection
   summary: Summary; plans: PlanSummary[]; timeline: TimelineRow[]; retention: RetentionReport[]
   cohorts: CohortRow[]; distribution: DistributionRow[]; users: UserPage; dataset: DatasetInfo
+  user_histories?: Record<string, UserHistory>
 }
 export interface ServiceStatus {
   snapshot_id: number | null; data_as_of: string | null; last_success_at: string | null

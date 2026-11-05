@@ -109,6 +109,10 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 	var malformed atomic.Bool
 	var latePageFailure atomic.Bool
 	var incrementalRequests atomic.Int64
+	mock, err := loadMockConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
 	mux := http.NewServeMux()
 	for _, route := range []struct{ schema, table string }{
 		{"users", "users"}, {"subscriptions", "plans"},
@@ -131,7 +135,7 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 			if r.URL.Query().Get("updated_since") != "" {
 				incrementalRequests.Add(1)
 			}
-			source(w, r, db, schema, table)
+			mock.serve(w, r, db, schema, table)
 		})
 	}
 	server := httptest.NewServer(mux)
@@ -194,6 +198,10 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 	if initial.Code != http.StatusServiceUnavailable || initial.Header().Get("Retry-After") == "" {
 		t.Fatalf("before first snapshot: status=%d headers=%v", initial.Code, initial.Header())
 	}
+	noHistory := requestUserHistory(svc, "1000007919", "", "")
+	if noHistory.Code != http.StatusServiceUnavailable || noHistory.Header().Get("Retry-After") == "" {
+		t.Fatalf("history before first snapshot: status=%d headers=%v", noHistory.Code, noHistory.Header())
+	}
 	malformed.Store(true)
 	if err = svc.sync(ctx); err == nil {
 		t.Fatal("malformed successful source response published an incomplete first snapshot")
@@ -222,6 +230,7 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 	}
 	redisKey := fmt.Sprintf("snapshot:%d:%s", snapshotID, cacheKey("summary", core.Filter{Periods: 12}))
 	t.Run("Excel export pins the snapshot and applies filters", func(t *testing.T) { exerciseWorkbookExport(t, svc, snapshotID) })
+	t.Run("User history pins the snapshot and reconciles payments", func(t *testing.T) { exerciseUserHistory(t, svc, snapshotID, cursor) })
 	if os.Getenv("TEST_REDIS_ADDR") != "" {
 		// DB 15 is reserved for this disposable integration fixture.
 		if err = cache.Del(ctx, redisKey).Err(); err != nil {
@@ -243,6 +252,15 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 	if !summary.DataAsOf.Equal(cursor) {
 		t.Fatalf("snapshot JSON timestamp differs from its persisted metadata: json=%s metadata=%s", summary.DataAsOf, cursor)
 	}
+	var observedThrough time.Time
+	var activePeriods int
+	if err = db.QueryRow(ctx, `SELECT (data->'dataset'->>'observed_through')::timestamptz, (data->'dataset'->>'active_periods')::int FROM analytics.snapshots WHERE id=$1`, snapshotID).Scan(&observedThrough, &activePeriods); err != nil {
+		t.Fatal(err)
+	}
+	seedCutoff, err := time.Parse(time.RFC3339, os.Getenv("DATASET_AS_OF"))
+	if err != nil || !observedThrough.Equal(seedCutoff) || !observedThrough.Before(cursor) || activePeriods == 0 {
+		t.Fatalf("static data must retain active periods at seed cutoff: observed=%v cursor=%v active=%d", observedThrough, cursor, activePeriods)
+	}
 	if os.Getenv("TEST_REDIS_ADDR") != "" {
 		cached, cacheErr := cache.Get(ctx, redisKey).Bytes()
 		if cacheErr != nil || !bytes.Equal(cached, response.Body.Bytes()) {
@@ -255,6 +273,19 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 	svc.metrics(notModified, req, "summary")
 	if notModified.Code != http.StatusNotModified || notModified.Body.Len() != 0 {
 		t.Fatalf("conditional GET: status=%d bytes=%d", notModified.Code, notModified.Body.Len())
+	}
+	badPlan := httptest.NewRecorder()
+	badPlanReq := httptest.NewRequest(http.MethodGet, "/metrics/retention?plan_id=missing", nil)
+	badPlanReq.Header.Set("If-None-Match", response.Header().Get("ETag"))
+	svc.metrics(badPlan, badPlanReq, "retention")
+	badDate := requestMetrics("summary", "from=invalid")
+	for _, invalid := range []*httptest.ResponseRecorder{badPlan, badDate} {
+		var body struct {
+			DataAsOf time.Time `json:"data_as_of"`
+		}
+		if err = json.Unmarshal(invalid.Body.Bytes(), &body); err != nil || invalid.Code != http.StatusBadRequest || !body.DataAsOf.Equal(cursor) {
+			t.Fatalf("invalid requests must retain 400 and the snapshot timestamp: status=%d body=%s", invalid.Code, invalid.Body.String())
+		}
 	}
 	// Redis unavailability must still allow creation and reuse of a filtered PG cache entry.
 	offline := newOfflineRedis()
@@ -305,6 +336,9 @@ func TestIntegrationPersistenceAndSync(t *testing.T) {
 	var utm string
 	if err = db.QueryRow(ctx, "SELECT data->>'utm_link' FROM analytics.raw WHERE kind='users' AND id=$1", updated.ID).Scan(&utm); err != nil || utm != updated.UTMLink {
 		t.Fatalf("updated old record not merged: utm=%q error=%v", utm, err)
+	}
+	if err = db.QueryRow(ctx, `SELECT (data->'dataset'->>'observed_through')::timestamptz FROM analytics.snapshots WHERE id=(SELECT current_id FROM analytics.state WHERE id=1)`).Scan(&observedThrough); err != nil || !observedThrough.Equal(seedCutoff) {
+		t.Fatalf("metadata update moved the observation cutoff: observed=%v error=%v", observedThrough, err)
 	}
 	if incrementalRequests.Load() == 0 {
 		t.Fatal("sources were never requested with updated_since")

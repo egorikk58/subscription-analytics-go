@@ -8,16 +8,17 @@ COMPOSE := docker compose --env-file "$(COMPOSE_ENV)"
 DEMO_DURATION ?= 3m
 DEMO_RPS ?= 10
 
-.PHONY: help up down build logs test test-race lint check deploy frontend-build frontend-dev frontend-check frontend-test frontend-lint
+.PHONY: help up down build logs test test-race test-integration lint check deploy frontend-build frontend-dev frontend-check frontend-test frontend-lint
 
 help:
 	@echo "up          build and start the full Docker Compose stack"
 	@echo "down        stop containers and keep database volumes"
 	@echo "logs        follow application logs"
-	@echo "test        run Go tests in Docker"
-	@echo "test-race   run Go tests with the race detector in Docker"
+	@echo "test        run Go unit tests in Docker"
+	@echo "test-race   run Go unit tests with the race detector in Docker"
+	@echo "test-integration  run Go race tests with disposable PostgreSQL and Redis"
 	@echo "lint        run golangci-lint in Docker"
-	@echo "check       run race tests, lint and validate Compose"
+	@echo "check       run Go integration/race tests, lint, frontend checks and validate Compose"
 	@echo "deploy      rebuild and start on the current Docker host"
 	@echo "frontend-build  build React and export assets for local Go embed"
 	@echo "frontend-dev    start Vite in Docker on localhost:5173"
@@ -44,17 +45,28 @@ test:
 test-race:
 	docker run --rm -e CGO_ENABLED=1 -v "$(CURDIR):/src" -w /src $(GO_IMAGE) go test -race ./...
 
+# The runner also joins bridge so Go can download modules from outside the test network.
+test-integration:
+	@set -eu; \
+	project=subscription-analytics-test-$$$$; \
+	compose() { POSTGRES_DB=subscription_test POSTGRES_PASSWORD=local-test docker compose --env-file .env.example -p "$$project" "$$@"; }; \
+	trap 'compose down --volumes' EXIT; \
+	compose up -d --wait --wait-timeout 90 postgres redis; \
+	docker run --rm --network "$${project}_backend" --network bridge \
+		-e CGO_ENABLED=1 -e 'TEST_DATABASE_URL=postgres://postgres:local-test@postgres:5432/subscription_test?sslmode=disable' \
+		-e TEST_REDIS_ADDR=redis:6379 -v "$(CURDIR):/src:ro" -w /src $(GO_IMAGE) go test -race -count=1 ./...
+
 lint:
 	docker run --rm -v "$(CURDIR):/src" -w /src $(LINT_IMAGE) golangci-lint run
 
-check: test-race lint frontend-check
+check: test-integration lint frontend-check
 	$(COMPOSE) --profile observability config --quiet
 
 frontend-build:
 	docker build --file docker/analytics-service.Dockerfile --target frontend-export --output type=local,dest=internal/app/web/dist .
 
 frontend-dev:
-	docker run --rm -p 5173:5173 --add-host host.docker.internal:host-gateway -e API_PROXY_TARGET=http://host.docker.internal:8080 -v "$(CURDIR)/frontend:/app" -v subscope_frontend_modules:/app/node_modules -v subscope_frontend_npm_cache:/root/.npm -w /app $(NODE_IMAGE) sh -c '$(FRONTEND_INSTALL) && npm run dev -- --host 0.0.0.0'
+	docker run --rm -p 127.0.0.1:5173:5173 --add-host host.docker.internal:host-gateway -e API_PROXY_TARGET=http://host.docker.internal:8080 -v "$(CURDIR)/frontend:/app" -v subscope_frontend_modules:/app/node_modules -v subscope_frontend_npm_cache:/root/.npm -w /app $(NODE_IMAGE) sh -c '$(FRONTEND_INSTALL) && npm run dev -- --host 0.0.0.0'
 
 frontend-check:
 	$(FRONTEND_RUN) sh -c '$(FRONTEND_INSTALL) && npm run typecheck && npm run lint && npm test && npm run build'

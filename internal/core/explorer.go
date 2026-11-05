@@ -17,6 +17,7 @@ type DatasetInfo struct {
 	GeneratorVersion   string           `json:"generator_version"`
 	HistoryMonths      int              `json:"history_months"`
 	DatasetAsOf        *time.Time       `json:"dataset_as_of"`
+	ObservedThrough    *time.Time       `json:"observed_through,omitempty"`
 	UsersCount         int              `json:"users_count"`
 	SubscriptionsCount int              `json:"subscriptions_count"`
 	PaymentsCount      int              `json:"payments_count"`
@@ -38,7 +39,7 @@ type DatasetSamples struct {
 // DescribeDataset records source evidence in the immutable snapshot, rather
 // than querying mutable source tables while a dashboard request is running.
 func DescribeDataset(d Dataset, now time.Time) DatasetInfo {
-	info := DatasetInfo{Currencies: map[string]int{}, Conversion: Policy(), UsersCount: len(d.Users), SubscriptionsCount: len(d.Subscriptions), PaymentsCount: len(d.Payments)}
+	info := DatasetInfo{Currencies: map[string]int{}, Conversion: Policy(), ObservedThrough: &now, UsersCount: len(d.Users), SubscriptionsCount: len(d.Subscriptions), PaymentsCount: len(d.Payments)}
 	paid := map[string]bool{}
 	plans := map[string]map[string]bool{}
 	for _, p := range d.Payments {
@@ -190,7 +191,7 @@ type Dashboard struct {
 }
 
 func retain(chains []Chain, asof time.Time, count int) []PeriodRow {
-	result := make([]PeriodRow, 0, count)
+	result := make([]PeriodRow, 0, max(0, count))
 	for n := 1; n <= count; n++ {
 		row := PeriodRow{Period: n}
 		for _, c := range chains {
@@ -223,6 +224,7 @@ func (s Snapshot) Dashboard(q DashboardQuery) (Dashboard, error) {
 		q.Selection = "first_plan"
 	}
 	out := Dashboard{Conversion: Policy(), UTMOptions: []string{}, DataAsOf: s.DataAsOf, Mode: "live", Dataset: s.Dataset, Plans: []map[string]any{}, Timeline: []map[string]any{}, Retention: []RetentionReport{}, Cohorts: []CohortRow{}, Distribution: []DistributionRow{}}
+	observedThrough := s.observationEnd()
 	options := map[string]bool{}
 	for _, f := range s.Facts {
 		options[NormalizeUTM(f.UTMLink)] = true
@@ -293,7 +295,7 @@ func (s Snapshot) Dashboard(q DashboardQuery) (Dashboard, error) {
 				}
 			}
 		}
-		out.Retention = append(out.Retention, RetentionReport{p.ID, len(chains), retain(chains, s.DataAsOf, 24)})
+		out.Retention = append(out.Retention, RetentionReport{p.ID, len(chains), retain(chains, observedThrough, 24)})
 	}
 	cohortChains := map[string][]Chain{}
 	for _, f := range dateFacts {
@@ -314,7 +316,7 @@ func (s Snapshot) Dashboard(q DashboardQuery) (Dashboard, error) {
 	sort.Strings(keys)
 	for _, month := range keys {
 		chains := cohortChains[month]
-		out.Cohorts = append(out.Cohorts, CohortRow{month, len(chains), retain(chains, s.DataAsOf, 12)})
+		out.Cohorts = append(out.Cohorts, CohortRow{month, len(chains), retain(chains, observedThrough, 12)})
 	}
 	bounds := []int64{0, 1, 100000, 500000, 1000000}
 	labels := []string{"Без выручки", "До 1 000 ₽", "1 000–5 000 ₽", "5 000–10 000 ₽", "От 10 000 ₽"}

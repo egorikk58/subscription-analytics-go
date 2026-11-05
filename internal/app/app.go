@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -31,19 +33,19 @@ func env(k, d string) string {
 	}
 	return d
 }
-func duration(k, d string) time.Duration {
+func positiveDuration(k, d string) (time.Duration, error) {
 	v, e := time.ParseDuration(env(k, d))
 	if e != nil || v <= 0 {
-		panic("invalid " + k)
+		return 0, fmt.Errorf("%s must be a positive duration", k)
 	}
-	return v
+	return v, nil
 }
-func integer(k, d string) int {
+func boundedInt(k, d string, minValue, maxValue int) (int, error) {
 	v, e := strconv.Atoi(env(k, d))
-	if e != nil {
-		panic("invalid " + k)
+	if e != nil || v < minValue || v > maxValue {
+		return 0, fmt.Errorf("%s must be an integer between %d and %d", k, minValue, maxValue)
 	}
-	return v
+	return v, nil
 }
 func Main(kind string) {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", kind))
@@ -55,18 +57,12 @@ func Main(kind string) {
 	}
 }
 func run(ctx context.Context, kind string) error {
-	if delay, e := time.ParseDuration(env("MOCK_DELAY", "50ms")); e != nil || delay < 0 {
-		return fmt.Errorf("invalid MOCK_DELAY")
+	config, e := loadConfig(kind)
+	if e != nil {
+		return e
 	}
-	for _, key := range []string{"MOCK_500_BPS", "MOCK_429_BPS"} {
-		n := integer(key, "100")
-		if n < 0 || n > 10000 {
-			return fmt.Errorf("%s must be between 0 and 10000", key)
-		}
-	}
-	if integer("MOCK_500_BPS", "100")+integer("MOCK_429_BPS", "100") > 10000 {
-		return fmt.Errorf("combined error probabilities exceed 100%%")
-	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	pool, e := pgxpool.New(ctx, os.Getenv("DATABASE_URL"))
 	if e != nil {
 		return e
@@ -81,6 +77,7 @@ func run(ctx context.Context, kind string) error {
 	obs := newObservability(kind, pool)
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
 		if e := pool.Ping(r.Context()); e != nil {
 			write(w, http.StatusServiceUnavailable, map[string]any{"error": "database unavailable", "data_as_of": nil})
 			return
@@ -96,7 +93,7 @@ func run(ctx context.Context, kind string) error {
 	})
 	var worker *service
 	if kind == "analytics-service" {
-		worker = &service{obs: obs, db: pool, interval: duration("SYNC_INTERVAL", "10m"), redis: redis.NewClient(&redis.Options{Addr: env("REDIS_ADDR", "redis:6379"), MaxRetries: -1, ReadTimeout: 200 * time.Millisecond, WriteTimeout: 200 * time.Millisecond, ContextTimeoutEnabled: true})}
+		worker = &service{ctx: ctx, obs: obs, db: pool, interval: config.interval, redis: redis.NewClient(&redis.Options{Addr: env("REDIS_ADDR", "redis:6379"), MaxRetries: -1, ReadTimeout: 200 * time.Millisecond, WriteTimeout: 200 * time.Millisecond, ContextTimeoutEnabled: true})}
 		defer func() { _ = worker.redis.Close() }()
 		mux.HandleFunc("GET /status", worker.status)
 		mux.HandleFunc("GET /api/dashboard", worker.dashboard)
@@ -104,6 +101,7 @@ func run(ctx context.Context, kind string) error {
 		mux.HandleFunc("GET /api/reports/export.xlsx", worker.exportWorkbook)
 		mux.HandleFunc("POST /api/reports/export.xlsx", worker.exportWorkbook)
 		mux.HandleFunc("GET /users/by-telegram/{telegram_id}/ltv", worker.telegramLTV)
+		mux.HandleFunc("GET /api/users/by-telegram/{telegram_id}/history", worker.userHistory)
 		for _, route := range []string{"summary", "by-plan", "by-utm", "retention", "plans"} {
 			name := route
 			path := "/metrics/ltv/" + route
@@ -119,16 +117,6 @@ func run(ctx context.Context, kind string) error {
 			return e
 		}
 		mux.Handle("/", frontend())
-		done := make(chan struct{})
-		go func() { defer close(done); worker.loop(ctx) }()
-		defer func() {
-			cancelCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
-			defer stop()
-			select {
-			case <-done:
-			case <-cancelCtx.Done():
-			}
-		}()
 	} else {
 		schema := strings.TrimSuffix(kind, "-service")
 		routes := []string{schema}
@@ -137,35 +125,55 @@ func run(ctx context.Context, kind string) error {
 		}
 		for _, table := range routes {
 			t := table
-			mux.HandleFunc("GET /"+t, func(w http.ResponseWriter, r *http.Request) { source(w, r, pool, schema, t) })
+			mux.HandleFunc("GET /"+t, func(w http.ResponseWriter, r *http.Request) { config.mock.serve(w, r, pool, schema, t) })
 		}
 	}
 	metricsMux := http.NewServeMux()
 	metricsMux.Handle("GET /metrics", obs.handler())
 	metricsMux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(200) })
-	metricsPort := integer("METRICS_PORT", "9091")
-	if metricsPort < 1 || metricsPort > 65535 || strconv.Itoa(metricsPort) == env("PORT", "8080") {
-		return fmt.Errorf("invalid METRICS_PORT")
+	baseContext := func(net.Listener) context.Context { return ctx }
+	metricsServer := &http.Server{Addr: ":" + strconv.Itoa(config.metricsPort), Handler: metricsMux, BaseContext: baseContext, ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second}
+	server := &http.Server{Addr: ":" + strconv.Itoa(config.port), Handler: obs.middleware(requestTimeouts(mux)), BaseContext: baseContext, ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 125 * time.Second}
+	var background sync.WaitGroup
+	defer func() {
+		cancel()
+		background.Wait()
+	}()
+	if worker != nil {
+		worker.running.Store(true)
+		background.Add(1)
+		go func() {
+			defer background.Done()
+			worker.loop(ctx, config.syncTimeout)
+		}()
 	}
-	metricsServer := &http.Server{Addr: ":" + strconv.Itoa(metricsPort), Handler: metricsMux, ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 10 * time.Second}
-	defer func() { _ = metricsServer.Close() }()
-	go obs.poll(ctx, pool, worker)
-	server := &http.Server{Addr: ":" + env("PORT", "8080"), Handler: obs.middleware(requestTimeouts(mux)), ReadHeaderTimeout: 5 * time.Second, WriteTimeout: 125 * time.Second}
+	background.Add(1)
+	go func() {
+		defer background.Done()
+		obs.poll(ctx, pool, worker)
+	}()
 	errs := make(chan error, 2)
 	go func() { errs <- metricsServer.ListenAndServe() }()
 	go func() { errs <- server.ListenAndServe() }()
+	var listenErr error
 	select {
 	case <-ctx.Done():
-		stopCtx, c := context.WithTimeout(context.Background(), 20*time.Second)
-		defer c()
-		_ = metricsServer.Shutdown(stopCtx)
-		return server.Shutdown(stopCtx)
-	case e := <-errs:
-		if errors.Is(e, http.ErrServerClosed) {
-			return nil
+	case listenErr = <-errs:
+		if errors.Is(listenErr, http.ErrServerClosed) {
+			listenErr = nil
 		}
-		return e
 	}
+	cancel()
+	stopCtx, stop := context.WithTimeout(context.Background(), 20*time.Second)
+	defer stop()
+	return errors.Join(listenErr, shutdownHTTP(stopCtx, metricsServer), shutdownHTTP(stopCtx, server))
+}
+
+func shutdownHTTP(ctx context.Context, server *http.Server) error {
+	if err := server.Shutdown(ctx); err != nil {
+		return errors.Join(err, server.Close())
+	}
+	return nil
 }
 func write(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -190,6 +198,9 @@ func bootstrap(ctx context.Context, db *pgxpool.Pool) error {
  CREATE TABLE IF NOT EXISTS analytics.responses(snapshot_id bigint REFERENCES analytics.snapshots(id) ON DELETE CASCADE,key text,body bytea NOT NULL,PRIMARY KEY(snapshot_id,key));
  CREATE TABLE IF NOT EXISTS analytics.user_ltv(snapshot_id bigint REFERENCES analytics.snapshots(id) ON DELETE CASCADE,telegram_id bigint,body bytea NOT NULL,PRIMARY KEY(snapshot_id,telegram_id));
  INSERT INTO analytics.migrations VALUES(2) ON CONFLICT DO NOTHING;
+ ALTER TABLE analytics.snapshots ADD COLUMN IF NOT EXISTS history_ready boolean NOT NULL DEFAULT false;
+ ALTER TABLE analytics.user_ltv ADD COLUMN IF NOT EXISTS history bytea;
+ INSERT INTO analytics.migrations VALUES(3) ON CONFLICT DO NOTHING;
  CREATE TABLE IF NOT EXISTS analytics.state(id int PRIMARY KEY CHECK(id=1),current_id bigint REFERENCES analytics.snapshots(id),cursor_at timestamptz,last_success timestamptz,next_sync timestamptz,last_error text,running boolean NOT NULL DEFAULT false); INSERT INTO analytics.state(id) VALUES(1) ON CONFLICT DO NOTHING;`)
 	if e != nil {
 		return e
@@ -225,11 +236,17 @@ func bootstrap(ctx context.Context, db *pgxpool.Pool) error {
 	if e = grantDatabaseViewer(ctx, tx); e != nil {
 		return e
 	}
-	seed := int64(integer("SEED", "42"))
-	months := integer("HISTORY_MONTHS", "24")
+	seed, e := strconv.ParseInt(env("SEED", "42"), 10, 64)
+	if e != nil {
+		return fmt.Errorf("SEED must be an int64")
+	}
+	months, e := boundedInt("HISTORY_MONTHS", "24", 18, 24)
+	if e != nil {
+		return e
+	}
 	asof, e := time.Parse(time.RFC3339, env("DATASET_AS_OF", "2026-11-01T00:00:00Z"))
-	if e != nil || asof.After(time.Now()) || months < 18 || months > 24 {
-		return fmt.Errorf("invalid dataset configuration")
+	if e != nil || asof.After(time.Now()) {
+		return fmt.Errorf("DATASET_AS_OF must be an RFC3339 timestamp at or before now")
 	}
 	var old string
 	e = tx.QueryRow(ctx, "SELECT config FROM analytics.seed WHERE id=1").Scan(&old)
@@ -241,7 +258,7 @@ func bootstrap(ctx context.Context, db *pgxpool.Pool) error {
 	if err != nil {
 		return err
 	}
-	config := fmt.Sprintf("%s/%d/%d/%d/%s", core.GeneratorVersion, seed, count, months, asof.Format(time.RFC3339))
+	config := fmt.Sprintf("%s/%d/%d/%d/%s", core.GeneratorVersion, seed, count, months, asof.Format(time.RFC3339Nano))
 	if exists {
 		if !sameDatasetParameters(old, config) {
 			return fmt.Errorf("seed parameters differ: use a separate database")
@@ -295,19 +312,18 @@ func bootstrap(ctx context.Context, db *pgxpool.Pool) error {
 	slog.Info("dataset generated", "users", len(d.Users), "payments", len(d.Payments))
 	return tx.Commit(ctx)
 }
-func source(w http.ResponseWriter, r *http.Request, db *pgxpool.Pool, schema, table string) {
-	delay, _ := time.ParseDuration(env("MOCK_DELAY", "50ms"))
+func (mock mockConfig) serve(w http.ResponseWriter, r *http.Request, db *pgxpool.Pool, schema, table string) {
 	select {
 	case <-r.Context().Done():
 		return
-	case <-time.After(delay):
+	case <-time.After(mock.delay):
 	}
 	draw := rand.IntN(10000)
-	if draw < integer("MOCK_500_BPS", "100") {
+	if draw < mock.failBPS {
 		http.Error(w, "injected failure", 500)
 		return
 	}
-	if draw < integer("MOCK_500_BPS", "100")+integer("MOCK_429_BPS", "100") {
+	if draw < mock.failBPS+mock.limitBPS {
 		w.Header().Set("Retry-After", "1")
 		http.Error(w, "rate limit", http.StatusTooManyRequests)
 		return
@@ -363,6 +379,7 @@ func source(w http.ResponseWriter, r *http.Request, db *pgxpool.Pool, schema, ta
 }
 
 type service struct {
+	ctx      context.Context
 	obs      *observability
 	db       *pgxpool.Pool
 	redis    *redis.Client
@@ -371,7 +388,14 @@ type service struct {
 	running  atomic.Bool
 }
 
-func (s *service) loop(ctx context.Context) {
+func (s *service) loop(ctx context.Context, timeout time.Duration) {
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+		defer cancel()
+		if _, err := s.db.Exec(cleanupCtx, "UPDATE analytics.state SET running=false WHERE id=1"); err != nil {
+			slog.Warn("cannot reset synchronization state on shutdown", "error", err)
+		}
+	}()
 	next := time.Now()
 	for {
 		if ctx.Err() != nil {
@@ -381,13 +405,16 @@ func (s *service) loop(ctx context.Context) {
 		s.obs.set("sync_in_progress", 1)
 		cycleStart := time.Now()
 		_, _ = s.db.Exec(ctx, "UPDATE analytics.state SET running=true,next_sync=$1 WHERE id=1", next.Add(s.interval))
-		syncCtx, c := context.WithTimeout(ctx, duration("SYNC_TIMEOUT", "2m"))
+		syncCtx, c := context.WithTimeout(ctx, timeout)
 		e := s.sync(syncCtx)
 		s.obs.syncFinished(e, cycleStart)
 		c()
 		s.running.Store(false)
-		for !next.After(time.Now()) {
-			next = next.Add(s.interval)
+		if ctx.Err() != nil {
+			return
+		}
+		if now := time.Now(); !next.After(now) {
+			next = now.Add(s.interval - now.Sub(next)%s.interval)
 		}
 		if e != nil {
 			slog.Error("sync failed", "error", e)
@@ -412,7 +439,10 @@ func (s *service) sync(ctx context.Context) error {
 	}
 	var lists [4][]json.RawMessage
 	g, gctx := errgroup.WithContext(ctx)
-	urls := []string{env("USERS_URL", "http://users-service:8080") + "/users", env("SUBSCRIPTIONS_URL", "http://subscriptions-service:8080") + "/plans", env("SUBSCRIPTIONS_URL", "http://subscriptions-service:8080") + "/subscriptions", env("PAYMENTS_URL", "http://payments-service:8080") + "/payments"}
+	usersURL := strings.TrimRight(env("USERS_URL", "http://users-service:8080"), "/")
+	subscriptionsURL := strings.TrimRight(env("SUBSCRIPTIONS_URL", "http://subscriptions-service:8080"), "/")
+	paymentsURL := strings.TrimRight(env("PAYMENTS_URL", "http://payments-service:8080"), "/")
+	urls := []string{usersURL + "/users", subscriptionsURL + "/plans", subscriptionsURL + "/subscriptions", paymentsURL + "/payments"}
 	for i, url := range urls {
 		i, url := i, url
 		g.Go(func() error {
@@ -460,15 +490,12 @@ func (s *service) sync(ctx context.Context) error {
 			return e
 		}
 	}
-	snap, e := core.Prepare(d, asof)
-	if e != nil {
-		return e
-	}
 	var seedConfig string
 	if e = tx.QueryRow(ctx, "SELECT config FROM analytics.seed WHERE id=1").Scan(&seedConfig); e != nil {
 		return e
 	}
-	if e = snap.Dataset.SetConfig(seedConfig); e != nil {
+	snap, e := preparePublishedSnapshot(d, seedConfig, asof)
+	if e != nil {
 		return e
 	}
 	b, e := json.Marshal(snap)
@@ -476,13 +503,23 @@ func (s *service) sync(ctx context.Context) error {
 		return e
 	}
 	var id int64
-	if e = tx.QueryRow(ctx, "INSERT INTO analytics.snapshots(data_as_of,data) VALUES($1,$2) RETURNING id", asof, b).Scan(&id); e != nil {
+	if e = tx.QueryRow(ctx, "INSERT INTO analytics.snapshots(data_as_of,data,history_ready) VALUES($1,$2,true) RETURNING id", asof, b).Scan(&id); e != nil {
 		return e
 	}
-	if _, e = tx.CopyFrom(ctx, pgx.Identifier{"analytics", "user_ltv"}, []string{"snapshot_id", "telegram_id", "body"}, pgx.CopyFromSlice(len(snap.Facts), func(i int) ([]any, error) {
+	histories := indexUserHistories(d, *snap.Dataset.ObservedThrough, nil)
+	if _, e = tx.CopyFrom(ctx, pgx.Identifier{"analytics", "user_ltv"}, []string{"snapshot_id", "telegram_id", "body", "history"}, pgx.CopyFromSlice(len(snap.Facts), func(i int) ([]any, error) {
 		f := snap.Facts[i]
-		body, err := json.Marshal(snap.UserLTV(f))
-		return []any{id, f.TelegramID, body}, err
+		profile := snap.UserLTV(f)
+		body, err := json.Marshal(profile)
+		if err != nil {
+			return nil, err
+		}
+		history, err := histories.project(profile)
+		if err != nil {
+			return nil, err
+		}
+		encoded, err := json.Marshal(history)
+		return []any{id, f.TelegramID, body, encoded}, err
 	})); e != nil {
 		return e
 	}
@@ -570,6 +607,7 @@ func cacheKey(route string, q core.Filter) string {
 }
 func (s *service) status(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("Cache-Control", "no-store")
 	var id *int64
 	var asof, last, next *time.Time
 	var message *string
@@ -582,11 +620,14 @@ func (s *service) status(w http.ResponseWriter, r *http.Request) {
 	write(w, 200, map[string]any{"snapshot_id": id, "data_as_of": asof, "last_success_at": last, "next_sync_at": next, "last_error": message, "sync_in_progress": running})
 }
 func (s *service) metrics(w http.ResponseWriter, r *http.Request, route string) {
+	var id *int64
+	var asof, next *time.Time
+	snapshotErr := s.db.QueryRow(r.Context(), "SELECT current_id,(SELECT data_as_of FROM analytics.snapshots WHERE id=current_id),next_sync FROM analytics.state WHERE id=1").Scan(&id, &asof, &next)
 	q := core.Filter{Plan: r.URL.Query().Get("plan_id"), Periods: 12}
 	var paramErr error
 	q.UTMLink, paramErr = utmParameter(r)
 	if paramErr != nil {
-		write(w, 400, map[string]any{"error": paramErr.Error(), "data_as_of": nil})
+		write(w, 400, map[string]any{"error": paramErr.Error(), "data_as_of": asof})
 		return
 	}
 	if route == "by-utm" {
@@ -595,14 +636,14 @@ func (s *service) metrics(w http.ResponseWriter, r *http.Request, route string) 
 			if raw := r.URL.Query().Get(name); raw != "" {
 				value, err := strconv.Atoi(raw)
 				if err != nil {
-					write(w, 400, map[string]any{"error": "invalid pagination", "data_as_of": nil})
+					write(w, 400, map[string]any{"error": "invalid pagination", "data_as_of": asof})
 					return
 				}
 				*target = value
 			}
 		}
 		if q.Page < 1 || q.Page > 1000000 || q.PageSize < 1 || q.PageSize > 1000 {
-			write(w, 400, map[string]any{"error": "invalid pagination", "data_as_of": nil})
+			write(w, 400, map[string]any{"error": "invalid pagination", "data_as_of": asof})
 			return
 		}
 	}
@@ -610,7 +651,7 @@ func (s *service) metrics(w http.ResponseWriter, r *http.Request, route string) 
 		if v := r.URL.Query().Get(name); v != "" {
 			t, e := time.Parse(time.RFC3339Nano, v)
 			if e != nil {
-				write(w, 400, map[string]any{"error": "invalid " + name, "data_as_of": nil})
+				write(w, 400, map[string]any{"error": "invalid " + name, "data_as_of": asof})
 				return
 			}
 			t = t.UTC()
@@ -621,52 +662,21 @@ func (s *service) metrics(w http.ResponseWriter, r *http.Request, route string) 
 		q.Periods, _ = strconv.Atoi(v)
 	}
 	if q.Periods < 1 || q.Periods > 24 || (q.From != nil && q.To != nil && !q.To.After(*q.From)) {
-		write(w, 400, map[string]any{"error": "invalid range", "data_as_of": nil})
+		write(w, 400, map[string]any{"error": "invalid range", "data_as_of": asof})
 		return
 	}
-	var id *int64
-	var asof, next *time.Time
-	if e := s.db.QueryRow(r.Context(), "SELECT current_id,(SELECT data_as_of FROM analytics.snapshots WHERE id=current_id),next_sync FROM analytics.state WHERE id=1").Scan(&id, &asof, &next); e != nil || id == nil {
+	if snapshotErr != nil || id == nil {
 		w.Header().Set("Retry-After", "5")
 		write(w, 503, map[string]any{"error": "snapshot unavailable", "data_as_of": nil})
 		return
 	}
 	key := cacheKey(route, q)
-	redisKey := fmt.Sprintf("snapshot:%d:%s", *id, key)
-	v, e, _ := s.flight.Do(redisKey, func() (any, error) {
-		redisCtx, c := context.WithTimeout(r.Context(), 200*time.Millisecond)
-		body, err := s.redis.Get(redisCtx, redisKey).Bytes()
-		s.obs.cacheResult("redis", err)
-		c()
-		if err == nil {
-			return body, nil
-		}
-		err = s.db.QueryRow(r.Context(), "SELECT body FROM analytics.responses WHERE snapshot_id=$1 AND key=$2", *id, key).Scan(&body)
-		s.obs.cacheResult("postgres", err)
-		if errors.Is(err, pgx.ErrNoRows) {
-			defer s.obs.buildStarted()()
-			var raw []byte
-			err = s.db.QueryRow(r.Context(), "SELECT data FROM analytics.snapshots WHERE id=$1", *id).Scan(&raw)
-			if err != nil {
-				return nil, err
-			}
-			var snap core.Snapshot
-			if err = json.Unmarshal(raw, &snap); err != nil {
-				return nil, err
-			}
-			body, err = snap.Response(route, q)
-			if err != nil {
-				return nil, err
-			}
-			_, err = s.db.Exec(r.Context(), "INSERT INTO analytics.responses VALUES($1,$2,$3) ON CONFLICT DO NOTHING", *id, key, body)
-		}
+	body, e := s.cachedResponse(r.Context(), *id, key, func(ctx context.Context) ([]byte, error) {
+		snap, err := s.loadSnapshot(ctx, *id)
 		if err != nil {
 			return nil, err
 		}
-		redisCtx, c = context.WithTimeout(r.Context(), 200*time.Millisecond)
-		_ = s.redis.Set(redisCtx, redisKey, body, 0).Err()
-		c()
-		return body, nil
+		return snap.Response(route, q)
 	})
 	if e != nil {
 		status := 503
@@ -699,5 +709,5 @@ func (s *service) metrics(w http.ResponseWriter, r *http.Request, route string) 
 		}
 	}
 	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(v.([]byte))
+	_, _ = w.Write(body)
 }
