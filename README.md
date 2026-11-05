@@ -1,17 +1,69 @@
 # Аналитика подписок на Go
 
-## Публичный стенд
+## Деплой на Ubuntu или Debian
 
-| Раздел | Ссылки |
-|---|---|
-| Интерфейс | [Обзор](http://81.26.184.226:8080/#/overview) · [Выручка](http://81.26.184.226:8080/#/revenue) · [Продления](http://81.26.184.226:8080/#/retention) · [Когорты](http://81.26.184.226:8080/#/cohorts) |
-| Данные | [Выборка пользователей](http://81.26.184.226:8080/#/users) · [Генератор](http://81.26.184.226:8080/#/generator) · [Источники и снимки](http://81.26.184.226:8080/#/sources) |
-| API и состояние | [Swagger](http://81.26.184.226:8080/docs/) · [OpenAPI аналитики](http://81.26.184.226:8080/openapi.json) · [OpenAPI моков](http://81.26.184.226:8080/openapi-mocks.json) · [Статус снимка](http://81.26.184.226:8080/status) · [Healthcheck](http://81.26.184.226:8080/healthz) · [Тарифы](http://81.26.184.226:8080/api/plans) |
-| Примеры метрик | [Сводка LTV](http://81.26.184.226:8080/metrics/ltv/summary) · [LTV по тарифам](http://81.26.184.226:8080/metrics/ltv/by-plan) · [LTV по UTM](http://81.26.184.226:8080/metrics/ltv/by-utm) · [Продления месячного тарифа](http://81.26.184.226:8080/metrics/retention?plan_id=monthly) |
-| Один пользователь | [LTV по Telegram ID](http://81.26.184.226:8080/users/by-telegram/1000007919/ltv) · [История покупок](http://81.26.184.226:8080/api/users/by-telegram/1000007919/history) · [Пример Excel](http://81.26.184.226:8080/api/reports/export.xlsx?kind=users&user_id=4ee72432-dbf5-4df7-8272-1aa4a228b06f) |
-| Панели с учётной записью оператора | [Grafana](http://81.26.184.226:8080/grafana/) · [Цели Prometheus](http://81.26.184.226:8080/prometheus/targets) · [Метрики Prometheus](http://81.26.184.226:8080/metrics) · [pgAdmin](http://81.26.184.226:8080/db/) |
+### 1. Установка Docker Engine, Compose и зависимостей
 
-В **Выборке** нажмите на ID, чтобы увидеть, когда пользователь покупал и продлевал подписку. В **Генераторе** можно открыть другой набор по seed. Предпросмотр хранится отдельно от рабочего снимка.
+Выполните этот блок на чистой Ubuntu или Debian. Команды подключают официальный APT-репозиторий Docker и запускают Docker Engine. [Ubuntu](https://docs.docker.com/engine/install/ubuntu/#install-using-the-apt-repository) · [Debian](https://docs.docker.com/engine/install/debian/#install-using-the-apt-repository)
+
+```sh
+(
+  set -eu
+  sudo apt-get update
+  sudo apt-get install -y ca-certificates curl git make openssl
+
+  . /etc/os-release
+  sudo install -m 0755 -d /etc/apt/keyrings
+  sudo curl -fsSL "https://download.docker.com/linux/$ID/gpg" -o /etc/apt/keyrings/docker.asc
+  sudo chmod a+r /etc/apt/keyrings/docker.asc
+  sudo tee /etc/apt/sources.list.d/docker.sources >/dev/null <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/$ID
+Suites: ${UBUNTU_CODENAME:-$VERSION_CODENAME}
+Components: stable
+Architectures: $(dpkg --print-architecture)
+Signed-By: /etc/apt/keyrings/docker.asc
+EOF
+  sudo apt-get update
+  sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  sudo systemctl enable --now docker
+  sudo docker version
+  sudo docker compose version
+)
+```
+
+### 2. Склонируйте репозиторий и настройте адрес
+
+Для клонирования приватного репозитория используйте учётную запись с доступом к нему.
+
+```sh
+git clone https://github.com/egorikk58/subscription-analytics-go.git
+cd subscription-analytics-go
+cp .env.example .env
+chmod 600 .env
+```
+
+Заполните пароли в `.env` по шагу 2 раздела [«Локальный запуск»](#локальный-запуск) и выставьте адрес стенда. При повторном деплое используйте существующий `.env`.
+
+| Доступ | `ANALYTICS_PORT` | `PUBLIC_BASE_URL` |
+|---|---|---|
+| Локально | `127.0.0.1:8080` | `http://localhost:8080` |
+| Проверка по публичному IP ВМ | `0.0.0.0:8080` | `http://<публичный-IP>:8080` |
+| HTTPS-прокси на том же хосте | `127.0.0.1:8080` | `https://<ваш-домен>` |
+
+`ANALYTICS_PORT` задаёт привязку порта Docker. `PUBLIC_BASE_URL` — адрес стенда в браузере без завершающего слеша. Для проверки по IP разрешите входящий TCP `8080` со своего IP в группе безопасности ВМ. Для входа в панели через интернет используйте HTTPS.
+
+### 3. Запустите через Make
+
+```sh
+sudo make deploy
+sudo docker compose ps -a
+curl -fsS http://127.0.0.1:8080/status
+```
+
+`make deploy` собирает и поднимает стек с профилем `observability`. Если у пользователя уже есть доступ к Docker, запускайте `make deploy` без `sudo`. Когда `/status` вернёт `snapshot_id` и `last_error: null`, откройте интерфейс с другого устройства по `PUBLIC_BASE_URL`.
+
+Для обновления выполните `git pull --ff-only` и `sudo make deploy` из той же папки. Существующие volumes сохраняют данные. [HTTPS-прокси, последовательная сборка и ротация паролей](docs/OPERATIONS.md)
 
 ## Локальный запуск
 
@@ -29,57 +81,36 @@ docker compose ps -a
 
 `bootstrap` должен завершиться с кодом `0`. Дождитесь ненулевого `snapshot_id` в `/status`, затем откройте сводку LTV. До первого снимка API метрик возвращает `503` с `Retry-After`.
 
-Локально откройте [приложение](http://localhost:8080/) и [Swagger](http://localhost:8080/docs/). Остальные пути из таблицы выше доступны на том же локальном адресе.
+Локально откройте [приложение](http://localhost:8080/) и [Swagger](http://localhost:8080/docs/). Остальные пути из раздела [«Публичный стенд»](#публичный-стенд) доступны на том же локальном адресе.
 
 pgAdmin, Grafana и Prometheus запрашивают `OPS_USERNAME` и `OPS_PASSWORD` из `.env` запущенного стенда. Логин по умолчанию — `ops`. На ВМ значения можно посмотреть командой `grep -E '^OPS_(USERNAME|PASSWORD)=' .env`. Если pgAdmin отдельно запросит пароль PostgreSQL, используйте роль `demo_viewer` и `DB_VIEWER_PASSWORD`. `GRAFANA_ADMIN_PASSWORD` относится к внутренней учётной записи Grafana при первой инициализации.
 
-`slog` пишет JSON в stdout. В логах analytics видны HTTP-запросы, публикации снимков и ошибки опроса.
+## Демо-нагрузка и Grafana
+
+1. Дождитесь первого снимка в `/status` и откройте `/grafana/` по адресу стенда. Для входа используйте `OPS_USERNAME` и `OPS_PASSWORD` из `.env`.
+2. Выберите дашборд **Подписки · HTTP и Go**, диапазон **Last 5 minutes** и обновление каждые **15 секунд**.
+3. Из корня проекта запустите нагрузку.
 
 ```sh
-docker compose logs -f --tail=100 analytics-service
-docker compose logs bootstrap
+sudo make demo-traffic
 ```
 
-`make check` запускает race-тесты с отдельными PostgreSQL и Redis, линтер, проверки фронтенда и Compose. Быстрый прогон Go без БД — `make test-race`. CI поднимает чистый стенд и проверяет его в браузере. Формулы сверяются на наборах с вручную рассчитанным результатом. [Тесты и smoke](docs/TESTING.md)
+По умолчанию генератор отправляет до 10 запросов/с в течение 3 минут. Он читает API без записи в источники. Для другого прогона задайте, например, `sudo make demo-traffic DEMO_DURATION=5m DEMO_RPS=20`. Итоговая строка `demo traffic finished` покажет число запросов, ошибок и среднее время ответа.
 
-## Деплой
+После нескольких сборов метрик, обычно через 30–60 секунд, проверьте **Application RPS**, **HTTP p95** и **HTTP 5xx ratio**. Если данных нет, откройте `/prometheus/targets` и проверьте статус `UP` у analytics.
 
-На ВМ перенесите код и создайте отдельный `.env` со своими паролями. Файл исключён из Git. Для команд Docker на Linux при необходимости используйте `sudo`.
+## Публичный стенд
 
-| Доступ | `ANALYTICS_PORT` | `PUBLIC_BASE_URL` |
-|---|---|---|
-| Локально | `127.0.0.1:8080` | `http://localhost:8080` |
-| Проверка по публичному IP ВМ | `0.0.0.0:8080` | `http://<публичный-IP>:8080` |
-| HTTPS-прокси на том же хосте | `127.0.0.1:8080` | `https://<ваш-домен>` |
+| Раздел | Ссылки |
+|---|---|
+| Интерфейс | [Обзор](http://81.26.184.226:8080/#/overview) · [Выручка](http://81.26.184.226:8080/#/revenue) · [Продления](http://81.26.184.226:8080/#/retention) · [Когорты](http://81.26.184.226:8080/#/cohorts) |
+| Данные | [Выборка пользователей](http://81.26.184.226:8080/#/users) · [Генератор](http://81.26.184.226:8080/#/generator) · [Источники и снимки](http://81.26.184.226:8080/#/sources) |
+| API и состояние | [Swagger](http://81.26.184.226:8080/docs/) · [OpenAPI аналитики](http://81.26.184.226:8080/openapi.json) · [OpenAPI моков](http://81.26.184.226:8080/openapi-mocks.json) · [Статус снимка](http://81.26.184.226:8080/status) · [Healthcheck](http://81.26.184.226:8080/healthz) · [Тарифы](http://81.26.184.226:8080/api/plans) |
+| Примеры метрик | [Сводка LTV](http://81.26.184.226:8080/metrics/ltv/summary) · [LTV по тарифам](http://81.26.184.226:8080/metrics/ltv/by-plan) · [LTV по UTM](http://81.26.184.226:8080/metrics/ltv/by-utm) · [Продления месячного тарифа](http://81.26.184.226:8080/metrics/retention?plan_id=monthly) |
+| Один пользователь | [LTV по Telegram ID](http://81.26.184.226:8080/users/by-telegram/1000007919/ltv) · [История покупок](http://81.26.184.226:8080/api/users/by-telegram/1000007919/history) · [Пример Excel](http://81.26.184.226:8080/api/reports/export.xlsx?kind=users&user_id=4ee72432-dbf5-4df7-8272-1aa4a228b06f) |
+| Панели с учётной записью оператора | [Grafana](http://81.26.184.226:8080/grafana/) · [Цели Prometheus](http://81.26.184.226:8080/prometheus/targets) · [Метрики Prometheus](http://81.26.184.226:8080/metrics) · [pgAdmin](http://81.26.184.226:8080/db/) |
 
-`ANALYTICS_PORT` задаёт привязку порта Docker. `PUBLIC_BASE_URL` — адрес стенда в браузере без завершающего слеша. Для проверки по IP разрешите входящий TCP `8080` со своего IP в группе безопасности ВМ. Для входа в панели через интернет используйте HTTPS.
-
-Выполните `make deploy` или ту же команду Compose, что и для локального запуска. Проверьте с другого устройства `/status` и интерфейс. Готовый снимок имеет `snapshot_id`, после успешного опроса `last_error` равен `null`. Для обновления выполните `git pull --ff-only` и повторите запуск. Существующие volumes сохраняют данные. [HTTPS-прокси, последовательная сборка и ротация паролей](docs/OPERATIONS.md)
-
-## Результаты запуска на ВМ
-
-- `docker compose ps -a` показал 10 контейнеров в состоянии `healthy`. Одноразовый `bootstrap` завершился с кодом `0`. На хосте опубликован порт analytics `0.0.0.0:8080 → 8080/tcp`.
-- В момент проверки `/status` показывал опубликованный снимок `19`, `last_error: null` и уже запущенный следующий опрос (`sync_in_progress: true`).
-
-Демо-нагрузка шла из Docker-сети 3 минуты с целевой частотой 10 запросов/с. Все **1 798 отправленных запросов** завершились успешно. Среднее время ответа в этом прогоне — **8,13 мс**.
-
-Поля итоговой записи `slog` (время ответа округлено):
-
-```json
-{
-  "msg": "demo traffic finished",
-  "elapsed": "3m0s",
-  "requests": 1798,
-  "success": 1798,
-  "http_4xx": 0,
-  "http_5xx": 0,
-  "network_errors": 0,
-  "skipped_busy": 1,
-  "mean_http_ms": 8.13
-}
-```
-
-Повторить прогон на запущенном стенде можно командой `docker compose --profile demo run --build --rm demo-traffic`. Трафик виден на HTTP-дашборде Grafana.
+В **Выборке** нажмите на ID, чтобы увидеть, когда пользователь покупал и продлевал подписку. В **Генераторе** можно открыть другой набор по seed. Предпросмотр хранится отдельно от рабочего снимка.
 
 ## Архитектура
 
@@ -199,6 +230,40 @@ sequenceDiagram
 - **Моки статичны.** После bootstrap источники читают подготовленные записи. Новые платежи и изменения между циклами создаются в интеграционных тестах, где проверяется инкрементальный импорт.
 - Попытка, успешная оплата и возврат могут иметь одинаковое время. Telegram ID в генераторе идут с фиксированным шагом.
 - Работает один экземпляр analytics. Все четыре сервиса зависят от одного PostgreSQL.
+
+## Логи и проверки
+
+`slog` пишет JSON в stdout. В логах analytics видны HTTP-запросы, публикации снимков и ошибки опроса.
+
+```sh
+docker compose logs -f --tail=100 analytics-service
+docker compose logs bootstrap
+```
+
+`make check` запускает race-тесты с отдельными PostgreSQL и Redis, линтер, проверки фронтенда и Compose. Быстрый прогон Go без БД — `make test-race`. CI поднимает чистый стенд и проверяет его в браузере. Формулы сверяются на наборах с вручную рассчитанным результатом. [Тесты и smoke](docs/TESTING.md)
+
+## Результаты запуска на ВМ
+
+- `docker compose ps -a` показал 10 контейнеров в состоянии `healthy`. Одноразовый `bootstrap` завершился с кодом `0`. На хосте опубликован порт analytics `0.0.0.0:8080 → 8080/tcp`.
+- В момент проверки `/status` показывал опубликованный снимок `19`, `last_error: null` и уже запущенный следующий опрос (`sync_in_progress: true`).
+
+Демо-нагрузка шла из Docker-сети 3 минуты с целевой частотой 10 запросов/с. Все **1 798 отправленных запросов** завершились успешно. Среднее время ответа в этом прогоне — **8,13 мс**.
+
+Поля итоговой записи `slog` (время ответа округлено):
+
+```json
+{
+  "msg": "demo traffic finished",
+  "elapsed": "3m0s",
+  "requests": 1798,
+  "success": 1798,
+  "http_4xx": 0,
+  "http_5xx": 0,
+  "network_errors": 0,
+  "skipped_busy": 1,
+  "mean_http_ms": 8.13
+}
+```
 
 ## Скриншоты стенда
 
